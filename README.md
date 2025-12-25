@@ -338,6 +338,7 @@ print(f"  Generator portion: {erev_range['generator_miles']:.1f} miles")
 
 Each simulation run creates a timestamped subfolder in `outputs/` containing:
 
+### Regular Simulation Outputs
 1. **`summary.txt`** - Text summary with key metrics (SI and Imperial units)
 2. **`plots.png`** - 4-panel figure showing:
    - Speed vs. Time
@@ -346,6 +347,20 @@ Each simulation run creates a timestamped subfolder in `outputs/` containing:
    - Grade vs. Time
 3. **`timeseries.csv`** - Full time-series data with all calculated values
 4. **`report.html`** - Interactive HTML report with embedded plots
+
+### Range Analysis Outputs
+For BEV range estimations:
+- **`bev_range_report.html`** - Interactive HTML report with range metrics, energy consumption, efficiency data, and embedded plots
+- **`bev_range_plots.png`** - Summary bar charts (range and energy)
+- **`bev_range_detailed_plots.png`** - Detailed 4-panel plots showing speed, power, energy, and grade vs distance over the entire range
+- **`bev_range_summary.txt`** - Text summary of range estimation
+
+For EREV range estimations:
+- **`erev_range_report.html`** - Comprehensive HTML report with range breakdown (EV-only vs generator-assisted), fuel consumption, energy metrics, and embedded plots
+- **`erev_range_plots.png`** - Multi-panel plots showing SOC, generator output, fuel remaining, and distance progression
+- **`erev_range_detailed_plots.png`** - Detailed 4-panel plots showing speed, power, energy, and grade vs distance over the entire range
+- **`erev_range_timeseries.csv`** - Full time-series data including SOC, generator output, and fuel levels
+- **`erev_range_summary.txt`** - Text summary of EREV range estimation
 
 ---
 

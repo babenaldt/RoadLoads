@@ -34,6 +34,10 @@ from road_load_simulator import (
     generate_erev_plots,
     generate_erev_range_plots,
     generate_bev_range_plots,
+    generate_erev_range_detailed_plots,
+    generate_bev_range_detailed_plots,
+    save_erev_range_html,
+    save_bev_range_html,
     MPS_TO_MPH,
     W_TO_HP
 )
@@ -1276,6 +1280,7 @@ class RangeEstimatorGUI:
             cycle_name = self.test_mode.get()
             cycle_filepath = os.path.join("drive_cycles", f"{cycle_name}.csv")
             self.last_cycle_name = cycle_name
+            self.last_cycle_filepath = cycle_filepath
             
             # Check cycle file exists (except for multi_cycle)
             if cycle_name != "multi_cycle" and not os.path.exists(cycle_filepath):
@@ -1320,11 +1325,20 @@ class RangeEstimatorGUI:
 
         try:
             cycle_name = getattr(self, 'last_cycle_name', 'range_test')
+            cycle_filepath = getattr(self, 'last_cycle_filepath', 'drive_cycles/constant_70mph.csv')
             timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
             run_output_dir = create_output_directory('outputs', f"{cycle_name}_range", timestamp)
 
             if self.vehicle.vehicle_class == 'erev':
                 plot_path = generate_erev_range_plots(self.range_results, cycle_name, run_output_dir)
+                
+                # Generate detailed plots if we have a valid cycle file
+                detailed_plot_path = None
+                if cycle_name != "multi_cycle" and os.path.exists(cycle_filepath):
+                    detailed_plot_path = generate_erev_range_detailed_plots(
+                        self.vehicle, cycle_filepath, self.range_results, cycle_name, run_output_dir
+                    )
+                
                 save_erev_timeseries_csv(self.range_results, run_output_dir, filename="erev_range_timeseries.csv")
 
                 summary_path = os.path.join(run_output_dir, "erev_range_summary.txt")
@@ -1340,11 +1354,41 @@ class RangeEstimatorGUI:
                     f.write(f"MPGe: {r['mpge']:.2f}\n")
                     f.write(f"Energy per mile: {r['kwh_per_mile']:.3f} kWh/mi\n")
 
+                # Generate HTML report
+                html_path = save_erev_range_html(
+                    self.vehicle,
+                    self.range_results,
+                    cycle_name,
+                    run_output_dir,
+                    os.path.basename(plot_path),
+                    os.path.basename(detailed_plot_path) if detailed_plot_path else None
+                )
+
+                files_list = [
+                    f"  • {os.path.basename(html_path)}",
+                    f"  • {os.path.basename(plot_path)}"
+                ]
+                if detailed_plot_path:
+                    files_list.append(f"  • {os.path.basename(detailed_plot_path)}")
+                files_list.extend([
+                    "  • erev_range_timeseries.csv",
+                    "  • erev_range_summary.txt"
+                ])
+
                 messagebox.showinfo("Saved", 
-                    f"EREV range report saved to:\n{run_output_dir}\nPlots: {os.path.basename(plot_path)}\nTimeseries: erev_range_timeseries.csv")
+                    f"EREV range report saved to:\n{run_output_dir}\n\n"
+                    f"Files:\n" + "\n".join(files_list))
 
             elif self.vehicle.vehicle_class == 'bev':
                 plot_path = generate_bev_range_plots(self.range_results, cycle_name, run_output_dir)
+                
+                # Generate detailed plots if we have a valid cycle file
+                detailed_plot_path = None
+                if cycle_name != "multi_cycle" and os.path.exists(cycle_filepath):
+                    detailed_plot_path = generate_bev_range_detailed_plots(
+                        self.vehicle, cycle_filepath, self.range_results, cycle_name, run_output_dir
+                    )
+                
                 summary_path = os.path.join(run_output_dir, "bev_range_summary.txt")
                 r = self.range_results
                 with open(summary_path, 'w') as f:
@@ -1357,8 +1401,27 @@ class RangeEstimatorGUI:
                     f.write(f"Cycles completed: {r.get('cycles_completed', r.get('total_cycles', 0))}\n")
                     f.write(f"Final SOC: {r['final_soc']:.1f}%\n")
 
+                # Generate HTML report
+                html_path = save_bev_range_html(
+                    self.vehicle,
+                    self.range_results,
+                    cycle_name,
+                    run_output_dir,
+                    os.path.basename(plot_path),
+                    os.path.basename(detailed_plot_path) if detailed_plot_path else None
+                )
+
+                files_list = [
+                    f"  • {os.path.basename(html_path)}",
+                    f"  • {os.path.basename(plot_path)}"
+                ]
+                if detailed_plot_path:
+                    files_list.append(f"  • {os.path.basename(detailed_plot_path)}")
+                files_list.append("  • bev_range_summary.txt")
+
                 messagebox.showinfo("Saved", 
-                    f"BEV range report saved to:\n{run_output_dir}\nPlots: {os.path.basename(plot_path)}")
+                    f"BEV range report saved to:\n{run_output_dir}\n\n"
+                    f"Files:\n" + "\n".join(files_list))
             else:
                 messagebox.showinfo("Not Supported", "Range report export is available for BEV and EREV only.")
         except Exception as e:

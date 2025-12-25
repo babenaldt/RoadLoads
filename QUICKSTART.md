@@ -266,6 +266,7 @@ with open('drive_cycles/my_highway_cycle.csv', 'w', newline='') as f:
 
 Each simulation creates a timestamped subfolder in `outputs/` with:
 
+### Regular Simulation
 - **`summary.txt`** - Text summary with all metrics (power, energy, distance, etc.)
 - **`plots.png`** - 4-panel visualization:
   - Speed profile
@@ -274,6 +275,20 @@ Each simulation creates a timestamped subfolder in `outputs/` with:
   - Road grade profile
 - **`timeseries.csv`** - Full time-series data with all calculated values for further analysis
 - **`report.html`** - Interactive HTML report with embedded plots and formatted results
+
+### Range Analysis
+For **BEV range** estimations:
+- **`bev_range_report.html`** - Interactive HTML report with range metrics, efficiency data, and embedded plots
+- **`bev_range_plots.png`** - Summary bar charts (range and energy)
+- **`bev_range_detailed_plots.png`** - Detailed 4-panel plots (speed, power, energy, grade vs distance)
+- **`bev_range_summary.txt`** - Text summary
+
+For **EREV range** estimations:
+- **`erev_range_report.html`** - Comprehensive HTML report with EV/generator breakdown, fuel consumption, and embedded plots
+- **`erev_range_plots.png`** - Multi-panel plots (SOC, generator output, fuel remaining, distance)
+- **`erev_range_detailed_plots.png`** - Detailed 4-panel plots (speed, power, energy, grade vs distance)
+- **`erev_range_timeseries.csv`** - Time-series data with SOC and fuel levels
+- **`erev_range_summary.txt`** - Text summary
 
 Example output location: `outputs/UDDS_2025-12-24_143022/`
 

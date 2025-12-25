@@ -33,6 +33,9 @@ M_TO_FT = 3.28084
 KG_TO_LB = 2.20462
 M2_TO_FT2 = 10.7639
 
+# Energy constants
+GASOLINE_ENERGY_KWH_PER_GALLON = 33.7  # kWh per gallon of gasoline
+
 
 # =============================================================================
 # Data Classes
@@ -517,6 +520,580 @@ def generate_erev_range_plots(
     return plot_path
 
 
+def generate_erev_range_detailed_plots(
+    vehicle: VehicleParams,
+    cycle_filepath: str,
+    range_data: dict,
+    cycle_name: str,
+    output_dir: str
+) -> str:
+    """Generate detailed plots for EREV range estimation (Speed, Power, Energy, Grade vs Distance)."""
+    # Load the drive cycle to get the full data
+    cycle = load_drive_cycle(cycle_filepath)
+    
+    # Run the simulation to get detailed results
+    results = calculate_road_load(vehicle, cycle)
+    
+    # Calculate distance
+    dt = np.diff(results.time, prepend=0)
+    distance_m = np.cumsum(results.speed * dt)
+    distance_miles = distance_m / 1609.34
+    
+    # Get the range to know how many cycles were completed
+    cycles_completed = range_data.get('cycles_completed', 1)
+    
+    # Replicate the data for all completed cycles
+    if cycles_completed > 1:
+        full_distance = []
+        full_speed = []
+        full_power = []
+        full_energy = []
+        full_grade = []
+        
+        cycle_distance = distance_miles[-1]
+        cycle_energy = results.energy_cumulative[-1]
+        
+        for i in range(cycles_completed):
+            offset_distance = i * cycle_distance
+            offset_energy = i * cycle_energy
+            full_distance.extend(distance_miles + offset_distance)
+            full_speed.extend(results.speed * MPS_TO_MPH)
+            full_power.extend(results.power / 1000)
+            full_energy.extend((results.energy_cumulative + offset_energy) / 3.6e6)
+            full_grade.extend(results.grade)
+        
+        distance_miles = np.array(full_distance)
+        speed_mph = np.array(full_speed)
+        power_kw = np.array(full_power)
+        energy_kwh = np.array(full_energy)
+        grade = np.array(full_grade)
+    else:
+        speed_mph = results.speed * MPS_TO_MPH
+        power_kw = results.power / 1000
+        energy_kwh = results.energy_cumulative / 3.6e6
+        grade = results.grade
+    
+    # Create 4-panel plot
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(f'EREV Range Analysis Detail: {cycle_name}', fontsize=14, fontweight='bold')
+    
+    # Speed vs Distance
+    axes[0, 0].plot(distance_miles, speed_mph, color='b', linewidth=1.2)
+    axes[0, 0].set_xlabel('Distance (miles)')
+    axes[0, 0].set_ylabel('Speed (mph)')
+    axes[0, 0].set_title('Speed vs Distance')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Power vs Distance
+    axes[0, 1].plot(distance_miles, power_kw, color='purple', linewidth=1.0)
+    axes[0, 1].fill_between(distance_miles, 0, power_kw, where=power_kw > 0, 
+                            color='red', alpha=0.3, label='Traction')
+    axes[0, 1].fill_between(distance_miles, 0, power_kw, where=power_kw < 0, 
+                            color='green', alpha=0.3, label='Regen')
+    axes[0, 1].set_xlabel('Distance (miles)')
+    axes[0, 1].set_ylabel('Power (kW)')
+    axes[0, 1].set_title('Power vs Distance')
+    axes[0, 1].legend(loc='best')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Cumulative Energy vs Distance
+    axes[1, 0].plot(distance_miles, energy_kwh, color='orange', linewidth=1.4)
+    axes[1, 0].set_xlabel('Distance (miles)')
+    axes[1, 0].set_ylabel('Energy (kWh)')
+    axes[1, 0].set_title('Cumulative Energy')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Grade vs Distance
+    axes[1, 1].fill_between(distance_miles, 0, grade, color='brown', alpha=0.4)
+    axes[1, 1].plot(distance_miles, grade, color='brown', linewidth=1.2)
+    axes[1, 1].set_xlabel('Distance (miles)')
+    axes[1, 1].set_ylabel('Grade (%)')
+    axes[1, 1].set_title('Road Grade')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plot_path = os.path.join(output_dir, "erev_range_detailed_plots.png")
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    return plot_path
+
+
+def generate_bev_range_detailed_plots(
+    vehicle: VehicleParams,
+    cycle_filepath: str,
+    range_data: dict,
+    cycle_name: str,
+    output_dir: str
+) -> str:
+    """Generate detailed plots for BEV range estimation (Speed, Power, Energy, Grade vs Distance)."""
+    # Load the drive cycle to get the full data
+    cycle = load_drive_cycle(cycle_filepath)
+    
+    # Run the simulation to get detailed results
+    results = calculate_road_load(vehicle, cycle)
+    
+    # Calculate distance
+    dt = np.diff(results.time, prepend=0)
+    distance_m = np.cumsum(results.speed * dt)
+    distance_miles = distance_m / 1609.34
+    
+    # Get the range to know how many cycles were completed
+    cycles_completed = range_data.get('cycles_completed', range_data.get('total_cycles', 1))
+    
+    # Replicate the data for all completed cycles
+    if cycles_completed > 1:
+        full_distance = []
+        full_speed = []
+        full_power = []
+        full_energy = []
+        full_grade = []
+        
+        cycle_distance = distance_miles[-1]
+        cycle_energy = results.energy_cumulative[-1]
+        
+        for i in range(cycles_completed):
+            offset_distance = i * cycle_distance
+            offset_energy = i * cycle_energy
+            full_distance.extend(distance_miles + offset_distance)
+            full_speed.extend(results.speed * MPS_TO_MPH)
+            full_power.extend(results.power / 1000)
+            full_energy.extend((results.energy_cumulative + offset_energy) / 3.6e6)
+            full_grade.extend(results.grade)
+        
+        distance_miles = np.array(full_distance)
+        speed_mph = np.array(full_speed)
+        power_kw = np.array(full_power)
+        energy_kwh = np.array(full_energy)
+        grade = np.array(full_grade)
+    else:
+        speed_mph = results.speed * MPS_TO_MPH
+        power_kw = results.power / 1000
+        energy_kwh = results.energy_cumulative / 3.6e6
+        grade = results.grade
+    
+    # Create 4-panel plot
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(f'BEV Range Analysis Detail: {cycle_name}', fontsize=14, fontweight='bold')
+    
+    # Speed vs Distance
+    axes[0, 0].plot(distance_miles, speed_mph, color='b', linewidth=1.2)
+    axes[0, 0].set_xlabel('Distance (miles)')
+    axes[0, 0].set_ylabel('Speed (mph)')
+    axes[0, 0].set_title('Speed vs Distance')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # Power vs Distance
+    axes[0, 1].plot(distance_miles, power_kw, color='purple', linewidth=1.0)
+    axes[0, 1].fill_between(distance_miles, 0, power_kw, where=power_kw > 0, 
+                            color='red', alpha=0.3, label='Traction')
+    axes[0, 1].fill_between(distance_miles, 0, power_kw, where=power_kw < 0, 
+                            color='green', alpha=0.3, label='Regen')
+    axes[0, 1].set_xlabel('Distance (miles)')
+    axes[0, 1].set_ylabel('Power (kW)')
+    axes[0, 1].set_title('Power vs Distance')
+    axes[0, 1].legend(loc='best')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # Cumulative Energy vs Distance
+    axes[1, 0].plot(distance_miles, energy_kwh, color='orange', linewidth=1.4)
+    axes[1, 0].set_xlabel('Distance (miles)')
+    axes[1, 0].set_ylabel('Energy (kWh)')
+    axes[1, 0].set_title('Cumulative Energy')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # Grade vs Distance
+    axes[1, 1].fill_between(distance_miles, 0, grade, color='brown', alpha=0.4)
+    axes[1, 1].plot(distance_miles, grade, color='brown', linewidth=1.2)
+    axes[1, 1].set_xlabel('Distance (miles)')
+    axes[1, 1].set_ylabel('Grade (%)')
+    axes[1, 1].set_title('Road Grade')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plot_path = os.path.join(output_dir, "bev_range_detailed_plots.png")
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    return plot_path
+
+
+def save_erev_range_html(
+    vehicle: VehicleParams,
+    range_data: dict,
+    cycle_name: str,
+    output_dir: str,
+    plot_filename: str = "erev_range_plots.png",
+    detailed_plot_filename: str = None
+) -> str:
+    """Generate and save HTML report for EREV range estimation."""
+    
+    # Extract range data
+    range_miles = range_data.get('range_miles', 0)
+    range_km = range_data.get('range_km', 0)
+    ev_only_miles = range_data.get('ev_only_miles', 0)
+    generator_miles = range_data.get('generator_miles', 0)
+    battery_energy_kwh = range_data.get('battery_energy_kwh', 0)
+    fuel_used_gallons = range_data.get('fuel_used_gallons', 0)
+    final_soc = range_data.get('final_soc', 0)
+    cycles_completed = range_data.get('cycles_completed', 0)
+    mpge = range_data.get('mpge', 0)
+    kwh_per_mile = range_data.get('kwh_per_mile', 0)
+    
+    # Calculate additional metrics
+    ev_percentage = (ev_only_miles / range_miles * 100) if range_miles > 0 else 0
+    generator_percentage = (generator_miles / range_miles * 100) if range_miles > 0 else 0
+    fuel_economy_mpg = generator_miles / fuel_used_gallons if fuel_used_gallons > 0 else 0
+    
+    # Calculate energy breakdown
+    fuel_energy_kwh = fuel_used_gallons * GASOLINE_ENERGY_KWH_PER_GALLON
+    total_energy_kwh = battery_energy_kwh + fuel_energy_kwh
+    battery_energy_pct = (battery_energy_kwh / total_energy_kwh * 100) if total_energy_kwh > 0 else 0
+    fuel_energy_pct = (fuel_energy_kwh / total_energy_kwh * 100) if total_energy_kwh > 0 else 0
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EREV Range Report: {cycle_name}</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }}
+        .container {{
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }}
+        h1 {{
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }}
+        h2 {{
+            color: #34495e;
+            margin: 25px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }}
+        .meta {{
+            color: #7f8c8d;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }}
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }}
+        .card {{
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #3498db;
+        }}
+        .card.range {{
+            border-left-color: #9b59b6;
+        }}
+        .card.energy {{
+            border-left-color: #27ae60;
+        }}
+        .card.fuel {{
+            border-left-color: #e67e22;
+        }}
+        .card.efficiency {{
+            border-left-color: #16a085;
+        }}
+        .card h3 {{
+            color: #2c3e50;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }}
+        .value {{
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #2c3e50;
+        }}
+        .unit {{
+            font-size: 0.5em;
+            color: #7f8c8d;
+            font-weight: normal;
+        }}
+        .secondary {{
+            color: #95a5a6;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }}
+        th {{
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }}
+        tr:hover {{
+            background: #f8f9fa;
+        }}
+        .plot-container {{
+            margin: 30px 0;
+            text-align: center;
+        }}
+        .plot-container img {{
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #7f8c8d;
+            font-size: 0.85em;
+            text-align: center;
+        }}
+        .progress-bar {{
+            width: 100%;
+            height: 30px;
+            background: #ecf0f1;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 10px 0;
+        }}
+        .progress-fill {{
+            height: 100%;
+            float: left;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.8em;
+            font-weight: bold;
+        }}
+        .ev-portion {{
+            background: linear-gradient(90deg, #27ae60, #2ecc71);
+        }}
+        .gen-portion {{
+            background: linear-gradient(90deg, #e67e22, #f39c12);
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚡🔋 EREV Range Estimation Report</h1>
+        <div class="meta">
+            <strong>Drive Cycle:</strong> {cycle_name} &nbsp;|&nbsp;
+            <strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &nbsp;|&nbsp;
+            <strong>EREV Mode:</strong> {vehicle.erev_mode}
+        </div>
+
+        <h2>📊 Total Range</h2>
+        <div class="grid">
+            <div class="card range">
+                <h3>Total Range</h3>
+                <div class="value">{range_miles:.1f} <span class="unit">mi</span></div>
+                <div class="secondary">{range_km:.1f} km</div>
+            </div>
+            <div class="card range">
+                <h3>EV-Only Range</h3>
+                <div class="value">{ev_only_miles:.1f} <span class="unit">mi</span></div>
+                <div class="secondary">{ev_percentage:.1f}% of total</div>
+            </div>
+            <div class="card range">
+                <h3>Generator-Assisted Range</h3>
+                <div class="value">{generator_miles:.1f} <span class="unit">mi</span></div>
+                <div class="secondary">{generator_percentage:.1f}% of total</div>
+            </div>
+            <div class="card range">
+                <h3>Cycles Completed</h3>
+                <div class="value">{cycles_completed}</div>
+                <div class="secondary">Drive cycles</div>
+            </div>
+        </div>
+
+        <h2>🔌 Range Breakdown</h2>
+        <div class="progress-bar">
+            <div class="progress-fill ev-portion" style="width: {ev_percentage:.1f}%">
+                EV: {ev_only_miles:.0f} mi
+            </div>
+            <div class="progress-fill gen-portion" style="width: {generator_percentage:.1f}%">
+                Generator: {generator_miles:.0f} mi
+            </div>
+        </div>
+
+        <h2>⚡ Energy Consumption</h2>
+        <div class="grid">
+            <div class="card energy">
+                <h3>Battery Energy Used</h3>
+                <div class="value">{battery_energy_kwh:.2f} <span class="unit">kWh</span></div>
+                <div class="secondary">{battery_energy_pct:.1f}% of total energy</div>
+            </div>
+            <div class="card energy">
+                <h3>Fuel Energy Used</h3>
+                <div class="value">{fuel_energy_kwh:.2f} <span class="unit">kWh</span></div>
+                <div class="secondary">{fuel_energy_pct:.1f}% of total energy</div>
+            </div>
+            <div class="card energy">
+                <h3>Total Energy</h3>
+                <div class="value">{total_energy_kwh:.2f} <span class="unit">kWh</span></div>
+                <div class="secondary">{kwh_per_mile:.3f} kWh/mi</div>
+            </div>
+            <div class="card energy">
+                <h3>Final State of Charge</h3>
+                <div class="value">{final_soc:.1f} <span class="unit">%</span></div>
+                <div class="secondary">Battery SOC</div>
+            </div>
+        </div>
+
+        <h2>⛽ Fuel Consumption</h2>
+        <div class="grid">
+            <div class="card fuel">
+                <h3>Fuel Used</h3>
+                <div class="value">{fuel_used_gallons:.3f} <span class="unit">gal</span></div>
+                <div class="secondary">{fuel_used_gallons * 3.78541:.2f} liters</div>
+            </div>
+            <div class="card fuel">
+                <h3>Generator Fuel Economy</h3>
+                <div class="value">{fuel_economy_mpg:.1f} <span class="unit">MPG</span></div>
+                <div class="secondary">During generator operation</div>
+            </div>
+            <div class="card fuel">
+                <h3>Tank Capacity</h3>
+                <div class="value">{vehicle.fuel_tank_gallons:.1f} <span class="unit">gal</span></div>
+                <div class="secondary">{(fuel_used_gallons/vehicle.fuel_tank_gallons*100):.1f}% used</div>
+            </div>
+            <div class="card fuel">
+                <h3>Fuel Remaining</h3>
+                <div class="value">{vehicle.fuel_tank_gallons - fuel_used_gallons:.2f} <span class="unit">gal</span></div>
+                <div class="secondary">{((1-fuel_used_gallons/vehicle.fuel_tank_gallons)*100):.1f}% remaining</div>
+            </div>
+        </div>
+
+        <h2>📈 Efficiency Metrics</h2>
+        <div class="grid">
+            <div class="card efficiency">
+                <h3>Combined MPGe</h3>
+                <div class="value">{mpge:.1f} <span class="unit">MPGe</span></div>
+                <div class="secondary">Miles per gallon equivalent</div>
+            </div>
+            <div class="card efficiency">
+                <h3>Energy per Mile</h3>
+                <div class="value">{kwh_per_mile:.3f} <span class="unit">kWh/mi</span></div>
+                <div class="secondary">{kwh_per_mile * 1000:.1f} Wh/mi</div>
+            </div>
+            <div class="card efficiency">
+                <h3>Battery Efficiency</h3>
+                <div class="value">{(battery_energy_kwh/ev_only_miles if ev_only_miles > 0 else 0):.3f} <span class="unit">kWh/mi</span></div>
+                <div class="secondary">EV-only portion</div>
+            </div>
+            <div class="card efficiency">
+                <h3>Generator Efficiency</h3>
+                <div class="value">{vehicle.bsfc_g_kwh:.0f} <span class="unit">g/kWh</span></div>
+                <div class="secondary">BSFC rating</div>
+            </div>
+        </div>
+
+        <h2>🚙 Vehicle Configuration</h2>
+        <table>
+            <tr>
+                <th>Parameter</th>
+                <th>Value</th>
+            </tr>
+            <tr>
+                <td>Vehicle Class</td>
+                <td>EREV (Extended Range Electric Vehicle)</td>
+            </tr>
+            <tr>
+                <td>EREV Mode</td>
+                <td>{vehicle.erev_mode.replace('_', ' ').title()}</td>
+            </tr>
+            <tr>
+                <td>Mass</td>
+                <td>{vehicle.mass:.1f} kg ({vehicle.mass * KG_TO_LB:.1f} lb)</td>
+            </tr>
+            <tr>
+                <td>Frontal Area</td>
+                <td>{vehicle.frontal_area:.2f} m² ({vehicle.frontal_area * M2_TO_FT2:.2f} ft²)</td>
+            </tr>
+            <tr>
+                <td>Drag Coefficient</td>
+                <td>{vehicle.drag_coefficient:.3f}</td>
+            </tr>
+            <tr>
+                <td>Rolling Resistance</td>
+                <td>{vehicle.rolling_resistance:.4f}</td>
+            </tr>
+            <tr>
+                <td>Battery Capacity</td>
+                <td>{vehicle.battery_capacity:.1f} kWh ({vehicle.usable_battery_pct:.0f}% usable)</td>
+            </tr>
+            <tr>
+                <td>Generator Power</td>
+                <td>{vehicle.generator_power_kw:.1f} kW</td>
+            </tr>
+            <tr>
+                <td>Fuel Tank Capacity</td>
+                <td>{vehicle.fuel_tank_gallons:.1f} gallons</td>
+            </tr>
+            <tr>
+                <td>SOC Sustain Threshold</td>
+                <td>{vehicle.soc_sustain_pct:.0f}%</td>
+            </tr>
+            <tr>
+                <td>Regen Efficiency</td>
+                <td>{vehicle.regen_efficiency * 100:.1f}%</td>
+            </tr>
+            <tr>
+                <td>Auxiliary Power</td>
+                <td>{vehicle.auxiliary_power:.0f} W</td>
+            </tr>
+        </table>
+
+        <h2>📈 Range Estimation Plots</h2>
+        <div class="plot-container">
+            <img src="{plot_filename}" alt="EREV Range Plots">
+        </div>
+        
+        {f'<h2>📊 Detailed Drive Cycle Analysis</h2><div class="plot-container"><img src="{detailed_plot_filename}" alt="EREV Detailed Plots"></div>' if detailed_plot_filename else ''}
+
+        <div class="footer">
+            Generated by Road Load Simulator - EREV Range Analysis | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        </div>
+    </div>
+</body>
+</html>
+"""
+    
+    filename = "erev_range_report.html"
+    filepath = os.path.join(output_dir, filename)
+    
+    with open(filepath, 'w') as f:
+        f.write(html_content)
+    
+    return filepath
+
+
 def generate_bev_range_plots(
     range_data: dict,
     cycle_name: str,
@@ -551,6 +1128,331 @@ def generate_bev_range_plots(
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     plt.close()
     return plot_path
+
+
+def save_bev_range_html(
+    vehicle: VehicleParams,
+    range_data: dict,
+    cycle_name: str,
+    output_dir: str,
+    plot_filename: str = "bev_range_plots.png",
+    detailed_plot_filename: str = None
+) -> str:
+    """Generate and save HTML report for BEV range estimation."""
+    
+    # Extract range data
+    range_miles = range_data.get('range_miles', 0)
+    range_km = range_data.get('range_km', 0)
+    energy_per_mile = range_data.get('energy_per_mile', 0)
+    energy_per_km = range_data.get('energy_per_km', 0)
+    energy_used_kwh = range_data.get('energy_used_kwh', 0)
+    cycles_completed = range_data.get('cycles_completed', range_data.get('total_cycles', 0))
+    final_soc = range_data.get('final_soc', 0)
+    
+    # Calculate additional metrics
+    usable_capacity_kwh = vehicle.battery_capacity * (vehicle.usable_battery_pct / 100.0)
+    battery_used_pct = (energy_used_kwh / usable_capacity_kwh * 100) if usable_capacity_kwh > 0 else 0
+    wh_per_mile = energy_per_mile * 1000
+    mpge = range_miles / (energy_used_kwh / 33.7) if energy_used_kwh > 0 else 0
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BEV Range Report: {cycle_name}</title>
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }}
+        .container {{
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 30px;
+        }}
+        h1 {{
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }}
+        h2 {{
+            color: #34495e;
+            margin: 25px 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }}
+        .meta {{
+            color: #7f8c8d;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }}
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }}
+        .card {{
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #3498db;
+        }}
+        .card.range {{
+            border-left-color: #2c7be5;
+        }}
+        .card.energy {{
+            border-left-color: #27ae60;
+        }}
+        .card.efficiency {{
+            border-left-color: #16a085;
+        }}
+        .card.battery {{
+            border-left-color: #9b59b6;
+        }}
+        .card h3 {{
+            color: #2c3e50;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }}
+        .value {{
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #2c3e50;
+        }}
+        .unit {{
+            font-size: 0.5em;
+            color: #7f8c8d;
+            font-weight: normal;
+        }}
+        .secondary {{
+            color: #95a5a6;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }}
+        th {{
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }}
+        tr:hover {{
+            background: #f8f9fa;
+        }}
+        .plot-container {{
+            margin: 30px 0;
+            text-align: center;
+        }}
+        .plot-container img {{
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }}
+        .footer {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #7f8c8d;
+            font-size: 0.85em;
+            text-align: center;
+        }}
+        .progress-bar {{
+            width: 100%;
+            height: 30px;
+            background: #ecf0f1;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 10px 0;
+        }}
+        .progress-fill {{
+            height: 100%;
+            background: linear-gradient(90deg, #2c7be5, #3498db);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.8em;
+            font-weight: bold;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔋 BEV Range Estimation Report</h1>
+        <div class="meta">
+            <strong>Drive Cycle:</strong> {cycle_name} &nbsp;|&nbsp;
+            <strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &nbsp;|&nbsp;
+            <strong>Vehicle Type:</strong> Battery Electric Vehicle
+        </div>
+
+        <h2>📊 Range Summary</h2>
+        <div class="grid">
+            <div class="card range">
+                <h3>Estimated Range</h3>
+                <div class="value">{range_miles:.1f} <span class="unit">mi</span></div>
+                <div class="secondary">{range_km:.1f} km</div>
+            </div>
+            <div class="card range">
+                <h3>Cycles Completed</h3>
+                <div class="value">{cycles_completed}</div>
+                <div class="secondary">Drive cycles</div>
+            </div>
+            <div class="card battery">
+                <h3>Battery Capacity Used</h3>
+                <div class="value">{battery_used_pct:.1f} <span class="unit">%</span></div>
+                <div class="secondary">{energy_used_kwh:.2f} kWh of {usable_capacity_kwh:.1f} kWh</div>
+            </div>
+            <div class="card battery">
+                <h3>Final SOC</h3>
+                <div class="value">{final_soc:.1f} <span class="unit">%</span></div>
+                <div class="secondary">State of charge</div>
+            </div>
+        </div>
+
+        <h2>🔌 Battery Usage</h2>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: {battery_used_pct:.1f}%">
+                {energy_used_kwh:.2f} kWh used ({battery_used_pct:.1f}%)
+            </div>
+        </div>
+
+        <h2>⚡ Energy Consumption</h2>
+        <div class="grid">
+            <div class="card energy">
+                <h3>Energy Used</h3>
+                <div class="value">{energy_used_kwh:.2f} <span class="unit">kWh</span></div>
+                <div class="secondary">{energy_used_kwh * 3.6:.1f} MJ</div>
+            </div>
+            <div class="card energy">
+                <h3>Energy per Mile</h3>
+                <div class="value">{energy_per_mile:.3f} <span class="unit">kWh/mi</span></div>
+                <div class="secondary">{wh_per_mile:.1f} Wh/mi</div>
+            </div>
+            <div class="card energy">
+                <h3>Energy per Kilometer</h3>
+                <div class="value">{energy_per_km:.3f} <span class="unit">kWh/km</span></div>
+                <div class="secondary">{energy_per_km * 1000:.1f} Wh/km</div>
+            </div>
+            <div class="card energy">
+                <h3>Battery Capacity</h3>
+                <div class="value">{vehicle.battery_capacity:.1f} <span class="unit">kWh</span></div>
+                <div class="secondary">{vehicle.usable_battery_pct:.0f}% usable ({usable_capacity_kwh:.1f} kWh)</div>
+            </div>
+        </div>
+
+        <h2>📈 Efficiency Metrics</h2>
+        <div class="grid">
+            <div class="card efficiency">
+                <h3>MPGe</h3>
+                <div class="value">{mpge:.1f} <span class="unit">MPGe</span></div>
+                <div class="secondary">Miles per gallon equivalent</div>
+            </div>
+            <div class="card efficiency">
+                <h3>Wh per Mile</h3>
+                <div class="value">{wh_per_mile:.0f} <span class="unit">Wh/mi</span></div>
+                <div class="secondary">Energy efficiency</div>
+            </div>
+            <div class="card efficiency">
+                <h3>Miles per kWh</h3>
+                <div class="value">{(1/energy_per_mile if energy_per_mile > 0 else 0):.2f} <span class="unit">mi/kWh</span></div>
+                <div class="secondary">Distance efficiency</div>
+            </div>
+            <div class="card efficiency">
+                <h3>Regen Efficiency</h3>
+                <div class="value">{vehicle.regen_efficiency * 100:.0f} <span class="unit">%</span></div>
+                <div class="secondary">Regenerative braking</div>
+            </div>
+        </div>
+
+        <h2>🚙 Vehicle Configuration</h2>
+        <table>
+            <tr>
+                <th>Parameter</th>
+                <th>Value</th>
+            </tr>
+            <tr>
+                <td>Vehicle Class</td>
+                <td>BEV (Battery Electric Vehicle)</td>
+            </tr>
+            <tr>
+                <td>Mass</td>
+                <td>{vehicle.mass:.1f} kg ({vehicle.mass * KG_TO_LB:.1f} lb)</td>
+            </tr>
+            <tr>
+                <td>Frontal Area</td>
+                <td>{vehicle.frontal_area:.2f} m² ({vehicle.frontal_area * M2_TO_FT2:.2f} ft²)</td>
+            </tr>
+            <tr>
+                <td>Drag Coefficient</td>
+                <td>{vehicle.drag_coefficient:.3f}</td>
+            </tr>
+            <tr>
+                <td>Rolling Resistance</td>
+                <td>{vehicle.rolling_resistance:.4f}</td>
+            </tr>
+            <tr>
+                <td>Battery Capacity (Total)</td>
+                <td>{vehicle.battery_capacity:.1f} kWh</td>
+            </tr>
+            <tr>
+                <td>Usable Battery Capacity</td>
+                <td>{usable_capacity_kwh:.1f} kWh ({vehicle.usable_battery_pct:.0f}%)</td>
+            </tr>
+            <tr>
+                <td>Regen Efficiency</td>
+                <td>{vehicle.regen_efficiency * 100:.1f}%</td>
+            </tr>
+            <tr>
+                <td>Auxiliary Power</td>
+                <td>{vehicle.auxiliary_power:.0f} W</td>
+            </tr>
+        </table>
+
+        <h2>📈 Range Estimation Plots</h2>
+        <div class="plot-container">
+            <img src="{plot_filename}" alt="BEV Range Plots">
+        </div>
+        
+        {f'<h2>📊 Detailed Drive Cycle Analysis</h2><div class="plot-container"><img src="{detailed_plot_filename}" alt="BEV Detailed Plots"></div>' if detailed_plot_filename else ''}
+
+        <div class="footer">
+            Generated by Road Load Simulator - BEV Range Analysis | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+        </div>
+    </div>
+</body>
+</html>
+"""
+    
+    filename = "bev_range_report.html"
+    filepath = os.path.join(output_dir, filename)
+    
+    with open(filepath, 'w') as f:
+        f.write(html_content)
+    
+    return filepath
 
 
 def generate_bev_plots(
@@ -1392,9 +2294,6 @@ def estimate_range_multi_cycle(
 # =============================================================================
 # Gasoline Vehicle Simulation
 # =============================================================================
-
-# Gasoline energy content: ~33.7 kWh/gallon
-GASOLINE_ENERGY_KWH_PER_GALLON = 33.7
 
 
 def simulate_gasoline(
