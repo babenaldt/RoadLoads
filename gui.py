@@ -623,9 +623,18 @@ class RoadLoadSimulatorGUI:
             # If EREV, run generator/battery split simulation
             self.erev_results = None
             if self.vehicle.vehicle_class == 'erev':
+                try:
+                    starting_soc = float(self.starting_soc_var.get())
+                except ValueError:
+                    messagebox.showerror("Input Error", "Starting SOC must be a number.")
+                    return
+
+                starting_soc = max(min(starting_soc, 100.0), 0.0)
+
                 self.erev_results = simulate_erev(
                     self.vehicle,
                     self.cycle_filepath,
+                    starting_soc=starting_soc,
                     precomputed_results=self.results
                 )
             
