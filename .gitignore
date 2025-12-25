@@ -1,0 +1,11 @@
+\.DS_Store
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+.env
+.venv/
+outputs/
+J2807 FEB2016 .pdf
