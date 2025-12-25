@@ -1280,7 +1280,13 @@ class RangeEstimatorGUI:
             cycle_name = self.test_mode.get()
             cycle_filepath = os.path.join("drive_cycles", f"{cycle_name}.csv")
             self.last_cycle_name = cycle_name
-            self.last_cycle_filepath = cycle_filepath
+            
+            # For multi-cycle, use a representative cycle for detailed plots
+            if cycle_name == "multi_cycle":
+                # Use constant_70mph as the representative cycle for plotting
+                self.last_cycle_filepath = os.path.join("drive_cycles", "constant_70mph.csv")
+            else:
+                self.last_cycle_filepath = cycle_filepath
             
             # Check cycle file exists (except for multi_cycle)
             if cycle_name != "multi_cycle" and not os.path.exists(cycle_filepath):
@@ -1332,9 +1338,9 @@ class RangeEstimatorGUI:
             if self.vehicle.vehicle_class == 'erev':
                 plot_path = generate_erev_range_plots(self.range_results, cycle_name, run_output_dir)
                 
-                # Generate detailed plots if we have a valid cycle file
+                # Generate detailed plots using the stored cycle filepath
                 detailed_plot_path = None
-                if cycle_name != "multi_cycle" and os.path.exists(cycle_filepath):
+                if os.path.exists(cycle_filepath):
                     detailed_plot_path = generate_erev_range_detailed_plots(
                         self.vehicle, cycle_filepath, self.range_results, cycle_name, run_output_dir
                     )
@@ -1382,9 +1388,9 @@ class RangeEstimatorGUI:
             elif self.vehicle.vehicle_class == 'bev':
                 plot_path = generate_bev_range_plots(self.range_results, cycle_name, run_output_dir)
                 
-                # Generate detailed plots if we have a valid cycle file
+                # Generate detailed plots using the stored cycle filepath
                 detailed_plot_path = None
-                if cycle_name != "multi_cycle" and os.path.exists(cycle_filepath):
+                if os.path.exists(cycle_filepath):
                     detailed_plot_path = generate_bev_range_detailed_plots(
                         self.vehicle, cycle_filepath, self.range_results, cycle_name, run_output_dir
                     )
