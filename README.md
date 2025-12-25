@@ -157,10 +157,12 @@ Where:
 - Mechanical losses
 
 **Applied Formula**:
-$$P_{applied}(t) = \begin{cases}
-P(t) & \text{if } P(t) \geq 0 \text{ (traction)} \\
-P(t) \times \eta_{regen} & \text{if } P(t) < 0 \text{ (braking)}
-\end{cases}$$
+
+For traction (accelerating):
+$$P_{applied}(t) = P(t) \quad \text{when } P(t) \geq 0$$
+
+For braking (regenerating):
+$$P_{applied}(t) = P(t) \times \eta_{regen} \quad \text{when } P(t) < 0$$
 
 ---
 
