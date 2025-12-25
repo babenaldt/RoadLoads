@@ -1525,7 +1525,10 @@ def simulate_erev(
     # Battery parameters
     usable_capacity_kwh = vehicle.battery_capacity * (vehicle.usable_battery_pct / 100.0)
     usable_capacity_j = usable_capacity_kwh * 3.6e6
-    min_soc = 100.0 - vehicle.usable_battery_pct  # Minimum usable SOC
+    # Allow starting below the nominal minimum without clamping upward, but never above 100 or below 0
+    starting_soc = min(max(starting_soc, 0.0), 100.0)
+    min_soc_limit = max(0.0, 100.0 - vehicle.usable_battery_pct)  # nominal floor from usable window
+    min_soc = min(starting_soc, min_soc_limit)
     
     # Generator parameters
     generator_power_w = vehicle.generator_power_kw * 1000.0
@@ -1736,7 +1739,9 @@ def estimate_erev_range(
     # Battery parameters
     usable_capacity_kwh = vehicle.battery_capacity * (vehicle.usable_battery_pct / 100.0)
     usable_capacity_j = usable_capacity_kwh * 3.6e6
-    min_soc = 100.0 - vehicle.usable_battery_pct
+    starting_soc = min(max(starting_soc, 0.0), 100.0)
+    min_soc_limit = max(0.0, 100.0 - vehicle.usable_battery_pct)
+    min_soc = min(starting_soc, min_soc_limit)
     
     # Generator/fuel parameters
     generator_power_w = vehicle.generator_power_kw * 1000.0
