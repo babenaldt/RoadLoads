@@ -113,6 +113,24 @@
       "erev_mode": "charge_depleting",
       "soc_sustain_pct": 20.0,
       "soc_blended_threshold_pct": 30.0
+    },
+    {
+      "name": "Scout Traveler EREV w/ Trailer",
+      "vehicle_class": "erev",
+      "mass": 5500.0,
+      "frontal_area": 4.5,
+      "cd": 0.75,
+      "crr": 0.02,
+      "regen": 0.9,
+      "aux_power": 1500.0,
+      "battery": 70.0,
+      "usable_battery_pct": 100.0,
+      "generator_power_kw": 110.0,
+      "bsfc_g_kwh": 225.0,
+      "fuel_tank_gallons": 15.0,
+      "erev_mode": "charge_depleting",
+      "soc_sustain_pct": 20.0,
+      "soc_blended_threshold_pct": 30.0
     }
   ]
 }

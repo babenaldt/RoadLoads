@@ -423,41 +423,49 @@ def generate_erev_plots(
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(f'EREV Simulation: {cycle_name}', fontsize=14, fontweight='bold')
 
-    # Speed
-    axes[0, 0].plot(distance_miles, base_results.speed * MPS_TO_MPH, color='b', linewidth=1.4)
+    # SOC
+    axes[0, 0].plot(erev_results.distance_miles_trace, erev_results.soc_timeline, color='g', linewidth=1.4)
+    axes[0, 0].axhline(erev_results.min_soc, color='r', linestyle='--', linewidth=0.8, label='Min SOC')
     axes[0, 0].set_xlabel('Distance (miles)')
-    axes[0, 0].set_ylabel('Speed (mph)')
-    axes[0, 0].set_title('Vehicle Speed')
+    axes[0, 0].set_ylabel('SOC (%)')
+    axes[0, 0].set_title('State of Charge')
+    axes[0, 0].legend(loc='best')
     axes[0, 0].grid(True, alpha=0.3)
 
-    # SOC
-    axes[0, 1].plot(erev_results.distance_miles_trace, erev_results.soc_timeline, color='g', linewidth=1.4)
-    axes[0, 1].axhline(erev_results.min_soc, color='r', linestyle='--', linewidth=0.8, label='Min SOC')
-    axes[0, 1].set_xlabel('Distance (miles)')
-    axes[0, 1].set_ylabel('SOC (%)')
-    axes[0, 1].set_title('State of Charge')
-    axes[0, 1].legend(loc='best')
-    axes[0, 1].grid(True, alpha=0.3)
-
     # Generator output
-    axes[1, 0].plot(erev_results.distance_miles_trace, erev_results.generator_output_kw, color='orange', linewidth=1.4, label='Generator kW')
-    axes[1, 0].fill_between(
+    axes[0, 1].plot(erev_results.distance_miles_trace, erev_results.generator_output_kw, color='orange', linewidth=1.4, label='Generator kW')
+    axes[0, 1].fill_between(
         erev_results.distance_miles_trace,
         0,
         erev_results.generator_output_kw,
         where=erev_results.generator_on_flags > 0,
         color='orange', alpha=0.25, label='Generator On'
     )
-    axes[1, 0].set_xlabel('Distance (miles)')
-    axes[1, 0].set_ylabel('Power (kW)')
-    axes[1, 0].set_title('Generator Output')
-    axes[1, 0].legend(loc='best')
-    axes[1, 0].grid(True, alpha=0.3)
+    axes[0, 1].set_xlabel('Distance (miles)')
+    axes[0, 1].set_ylabel('Power (kW)')
+    axes[0, 1].set_title('Generator Output')
+    axes[0, 1].legend(loc='best')
+    axes[0, 1].grid(True, alpha=0.3)
 
     # Fuel remaining
-    axes[1, 1].plot(erev_results.distance_miles_trace, erev_results.fuel_remaining_gal, color='purple', linewidth=1.4)
+    axes[1, 0].plot(erev_results.distance_miles_trace, erev_results.fuel_remaining_gal, color='purple', linewidth=1.4)
+    axes[1, 0].set_xlabel('Distance (miles)')
+    axes[1, 0].set_ylabel('Fuel Remaining (gal)')
+    axes[1, 0].set_title('Fuel Remaining')
+    axes[1, 0].grid(True, alpha=0.3)
+
+    # Distance Progression (to match range report style)
+    axes[1, 1].plot(erev_results.distance_miles_trace, erev_results.distance_miles_trace, color='blue', linewidth=1.2)
     axes[1, 1].set_xlabel('Distance (miles)')
-    axes[1, 1].set_ylabel('Fuel Remaining (gal)')
+    axes[1, 1].set_ylabel('Distance (miles)')
+    axes[1, 1].set_title('Distance Progression')
+    axes[1, 1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plot_path = os.path.join(output_dir, "erev_plots.png")
+    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    return plot_path
     axes[1, 1].set_title('Fuel Remaining')
     axes[1, 1].grid(True, alpha=0.3)
 
@@ -737,6 +745,7 @@ def save_erev_range_html(
     cycles_completed = range_data.get('cycles_completed', 0)
     mpge = range_data.get('mpge', 0)
     kwh_per_mile = range_data.get('kwh_per_mile', 0)
+    initial_ev_range_miles = range_data.get('initial_ev_range_miles', 0)
     
     # Calculate additional metrics
     ev_percentage = (ev_only_miles / range_miles * 100) if range_miles > 0 else 0
@@ -1703,7 +1712,18 @@ def save_summary_html(
     energy_recovery_pct = (regen_energy_kwh/traction_energy_kwh*100) if traction_energy_kwh > 0 else 0
     
     erev_block = ""
+    warning_block = ""
+    
     if vehicle.vehicle_class == 'erev' and erev_results is not None:
+        if erev_results.cycle_failed:
+            warning_block = f"""
+            <div class="warning-banner">
+                <h3>⚠️ SIMULATION FAILED: INSUFFICIENT POWER</h3>
+                <p>{erev_results.failure_reason}</p>
+                <p>The generator ({vehicle.generator_power_kw} kW) combined with the depleted battery could not meet the road load demand.</p>
+            </div>
+            """
+            
         erev_block = f"""
         <h2>⚡ EREV Details</h2>
         <div class="grid">
@@ -1740,8 +1760,6 @@ def save_summary_html(
         * {{
             box-sizing: border-box;
             margin: 0;
-
-        {f'<div class="plot-container"><img src="{secondary_plot_filename}" alt="Additional Plots"></div>' if secondary_plot_filename else ''}
             padding: 0;
         }}
         body {{
@@ -1793,6 +1811,20 @@ def save_summary_html(
         }}
         .card.energy {{
             border-left-color: #27ae60;
+        }}
+        .warning-banner {{
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            border-left: 5px solid #ffc107;
+        }}
+        .warning-banner h3 {{
+            margin-top: 0;
+            color: #856404;
+            border-bottom: none;
         }}
         .card h3 {{
             color: #2c3e50;
@@ -1855,6 +1887,9 @@ def save_summary_html(
 <body>
     <div class="container">
         <h1>🚗 Road Load Simulation Results</h1>
+        
+        {warning_block}
+        
         <div class="meta">
             <strong>Drive Cycle:</strong> {cycle_name} &nbsp;|&nbsp;
             <strong>Date:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} &nbsp;|&nbsp;
@@ -1960,6 +1995,8 @@ def save_summary_html(
         <div class="plot-container">
             <img src="{plot_filename}" alt="Simulation Plots">
         </div>
+
+        {f'<div class="plot-container"><img src="{secondary_plot_filename}" alt="Additional Plots"></div>' if secondary_plot_filename else ''}
 
         <div class="footer">
             Generated by Road Load Simulator | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
@@ -2380,6 +2417,10 @@ class EREVResults:
     mpge: float  # Miles per gallon equivalent
     kwh_per_mile: float
 
+    # Failure tracking
+    cycle_failed: bool = False
+    failure_reason: str = ""
+
 
 def simulate_erev(
     vehicle: VehicleParams,
@@ -2409,7 +2450,10 @@ def simulate_erev(
     if precomputed_results is not None:
         results = precomputed_results
     else:
-        cycle = load_drive_cycle(cycle_filepath, speed_unit)
+        # load_drive_cycle expects m/s. If speed_unit is mph, we might need conversion, 
+        # but load_drive_cycle doesn't support it yet. 
+        # Assuming input files are m/s for now as per load_drive_cycle docstring.
+        cycle = load_drive_cycle(cycle_filepath)
         results = calculate_road_load(vehicle, cycle)
     
     # Extract time-series data
@@ -2526,9 +2570,13 @@ def simulate_erev(
             # Battery provides the rest
             power_from_battery = demand_w - power_from_generator
             
-            # Check for power deficit (generator + battery can't meet demand)
-            available_power = power_from_generator + generator_power_w  # Max available
-            if generator_active and demand_w > available_power:
+            # Check for power deficit
+            # If battery is depleted, we are limited to generator power
+            available_power = float('inf')
+            if current_soc <= min_soc:
+                available_power = generator_power_w
+            
+            if demand_w > available_power:
                 deficit_kw = (demand_w - available_power) / 1000.0
                 power_deficit_events.append({
                     'time': time[i],
@@ -2590,6 +2638,18 @@ def simulate_erev(
     power_deficit_count = len(power_deficit_events)
     max_power_deficit_kw = max([e['deficit_kw'] for e in power_deficit_events], default=0.0)
     
+    # Determine failure status
+    cycle_failed = False
+    failure_reason = ""
+    
+    if power_deficit_count > 0:
+        cycle_failed = True
+        failure_reason = (
+            f"Power demand exceeded available power (Generator + Battery) "
+            f"while SOC was depleted. Max deficit: {max_power_deficit_kw:.1f} kW. "
+            f"Vehicle would lose speed."
+        )
+    
     return EREVResults(
         total_distance_miles=total_distance_miles,
         ev_only_miles=ev_only_miles,
@@ -2612,7 +2672,9 @@ def simulate_erev(
         generator_on_flags=generator_on_trace,
         fuel_remaining_gal=fuel_remaining_trace,
         distance_miles_trace=distance_miles_trace,
-        time_trace=time_trace
+        time_trace=time_trace,
+        cycle_failed=cycle_failed,
+        failure_reason=failure_reason
     )
 
 
@@ -2673,6 +2735,10 @@ def estimate_erev_range(
     cumulative_distance_m = 0.0
     cumulative_time = 0.0
     
+    # Track initial EV range (distance until generator first turns on)
+    initial_ev_range_m = 0.0
+    generator_has_started = False
+    
     # Run until both battery and fuel are depleted
     max_cycles = 1000  # Safety limit
     while cycles_completed < max_cycles:
@@ -2727,6 +2793,11 @@ def estimate_erev_range(
                 if demand_w > 0 and fuel_remaining_gallons > 0:
                     generator_active = True
                     generator_output_w = generator_power_w  # Always run at full power for efficiency
+            
+            # Capture initial EV range
+            if generator_active and not generator_has_started:
+                generator_has_started = True
+                initial_ev_range_m = cumulative_distance_m - distance_this_step
             
             if demand_w > 0:  # Traction
                 power_from_generator = generator_output_w if generator_active else 0.0
@@ -2813,8 +2884,28 @@ def estimate_erev_range(
     
     # Calculate results
     total_distance_miles = total_distance_m / 1609.34
-    ev_only_miles = ev_distance_m / 1609.34
-    generator_miles = generator_distance_m / 1609.34
+    
+    # Determine EV vs Generator miles based on mode
+    if generator_has_started:
+        if vehicle.erev_mode == 'charge_depleting':
+            # In CD mode, EV miles is the initial range before generator starts
+            # Generator miles is everything after (Charge Sustaining)
+            ev_only_miles = initial_ev_range_m / 1609.34
+            generator_miles = total_distance_miles - ev_only_miles
+        elif vehicle.erev_mode == 'hold':
+            # In Hold mode, generator runs from start
+            ev_only_miles = 0.0
+            generator_miles = total_distance_miles
+        else:
+            # Blended mode - stick to engine-on tracking
+            ev_only_miles = ev_distance_m / 1609.34
+            generator_miles = generator_distance_m / 1609.34
+    else:
+        # Generator never started
+        ev_only_miles = total_distance_miles
+        generator_miles = 0.0
+
+    initial_ev_range_miles = initial_ev_range_m / 1609.34
     battery_energy_kwh = total_battery_energy_j / 3.6e6
     
     # Efficiency
@@ -2827,6 +2918,7 @@ def estimate_erev_range(
         'range_km': total_distance_miles * 1.60934,
         'ev_only_miles': ev_only_miles,
         'generator_miles': generator_miles,
+        'initial_ev_range_miles': initial_ev_range_miles,
         'battery_energy_kwh': battery_energy_kwh,
         'fuel_used_gallons': total_fuel_used,
         'final_soc': current_soc,
@@ -2911,6 +3003,10 @@ def estimate_erev_range_multi_cycle(
     cumulative_distance_m = 0.0
     cumulative_time = 0.0
     
+    # Track initial EV range
+    initial_ev_range_m = 0.0
+    generator_has_started = False
+    
     # Run multi-cycle sequences until both battery and fuel are depleted
     max_sequences = 100  # Safety limit
     sequence_count = 0
@@ -2982,6 +3078,11 @@ def estimate_erev_range_multi_cycle(
                         if demand_w > 0 and fuel_remaining_gallons > 0:
                             generator_active = True
                             generator_output_w = generator_power_w  # Always run at full power for efficiency
+                    
+                    # Capture initial EV range
+                    if generator_active and not generator_has_started:
+                        generator_has_started = True
+                        initial_ev_range_m = total_distance_m
                     
                     if demand_w > 0:  # Traction
                         power_from_generator = generator_output_w if generator_active else 0.0
@@ -3094,8 +3195,23 @@ def estimate_erev_range_multi_cycle(
     
     # Calculate results
     total_distance_miles = total_distance_m / 1609.34
-    ev_only_miles = ev_distance_m / 1609.34
-    generator_miles = generator_distance_m / 1609.34
+    
+    # Determine EV vs Generator miles based on mode
+    if generator_has_started:
+        if vehicle.erev_mode == 'charge_depleting':
+            ev_only_miles = initial_ev_range_m / 1609.34
+            generator_miles = total_distance_miles - ev_only_miles
+        elif vehicle.erev_mode == 'hold':
+            ev_only_miles = 0.0
+            generator_miles = total_distance_miles
+        else:
+            ev_only_miles = ev_distance_m / 1609.34
+            generator_miles = generator_distance_m / 1609.34
+    else:
+        ev_only_miles = total_distance_miles
+        generator_miles = 0.0
+
+    initial_ev_range_miles = initial_ev_range_m / 1609.34
     battery_energy_kwh = total_battery_energy_j / 3.6e6
     
     # Efficiency
@@ -3108,6 +3224,7 @@ def estimate_erev_range_multi_cycle(
         'range_km': total_distance_miles * 1.60934,
         'ev_only_miles': ev_only_miles,
         'generator_miles': generator_miles,
+        'initial_ev_range_miles': initial_ev_range_m / 1609.34,
         'battery_energy_kwh': battery_energy_kwh,
         'fuel_used_gallons': total_fuel_used,
         'final_soc': current_soc,

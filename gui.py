@@ -655,6 +655,12 @@ class RoadLoadSimulatorGUI:
                     starting_soc=starting_soc,
                     precomputed_results=self.results
                 )
+
+                if self.erev_results.cycle_failed:
+                    messagebox.showwarning(
+                        "Simulation Failed",
+                        f"The vehicle could not complete the drive cycle.\n\nReason: {self.erev_results.failure_reason}"
+                    )
             
             # Update display
             self.update_plots(self.results)
@@ -707,9 +713,9 @@ class RoadLoadSimulatorGUI:
             self.ax3.set_ylabel("Energy (kWh)")
             self.ax3.grid(True, alpha=0.3)
             
-            self.ax4.set_title("Road Grade")
+            self.ax4.set_title("Road Grade / SOC / Fuel")
             self.ax4.set_xlabel("Distance (miles)")
-            self.ax4.set_ylabel("Grade (%)")
+            self.ax4.set_ylabel("Grade / SOC / Fuel")
             self.ax4.grid(True, alpha=0.3)
             
             self.fig.tight_layout()
@@ -748,14 +754,47 @@ class RoadLoadSimulatorGUI:
         self.ax3.set_title("Cumulative Energy")
         self.ax3.grid(True, alpha=0.3)
         
-        # Plot 4: Grade
-        self.ax4.plot(distance_miles, results.grade, 'm-', linewidth=1.5)
-        self.ax4.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
-        self.ax4.fill_between(distance_miles, 0, results.grade, alpha=0.3, color='m')
+        # Plot 4: SOC / Fuel / Grade
+        if self.vehicle and self.vehicle.vehicle_class == 'erev' and self.erev_results:
+            # EREV SOC
+            self.ax4.plot(distance_miles, self.erev_results.soc_timeline, 'm-', linewidth=1.5)
+            self.ax4.set_ylabel("SOC (%)")
+            self.ax4.set_title("State of Charge")
+            self.ax4.set_ylim(0, 100)
+            self.ax4.grid(True, alpha=0.3)
+        elif self.vehicle and self.vehicle.vehicle_class == 'bev':
+            # BEV SOC
+            battery_kwh = self.vehicle.battery_capacity
+            energy_used_kwh = results.energy_cumulative / 3.6e6
+            # Assuming starting at 100% SOC
+            soc = 100.0 - (energy_used_kwh / battery_kwh * 100.0)
+            self.ax4.plot(distance_miles, soc, 'm-', linewidth=1.5)
+            self.ax4.set_ylabel("SOC (%)")
+            self.ax4.set_title("State of Charge")
+            self.ax4.grid(True, alpha=0.3)
+        elif self.vehicle and self.vehicle.vehicle_class == 'gasoline':
+            # Gasoline Fuel
+            tank_gal = self.vehicle.fuel_tank_gallons
+            mpg = self.vehicle.fuel_economy_mpg
+            if mpg > 0:
+                fuel_used_gal = distance_miles / mpg
+                fuel_remaining = tank_gal - fuel_used_gal
+                self.ax4.plot(distance_miles, fuel_remaining, 'm-', linewidth=1.5)
+                self.ax4.set_ylabel("Fuel (gallons)")
+                self.ax4.set_title("Fuel Remaining")
+                self.ax4.grid(True, alpha=0.3)
+            else:
+                self.ax4.text(0.5, 0.5, "Invalid MPG", ha='center')
+        else:
+            # Fallback to Grade
+            self.ax4.plot(distance_miles, results.grade, 'm-', linewidth=1.5)
+            self.ax4.axhline(y=0, color='k', linestyle='-', linewidth=0.5)
+            self.ax4.fill_between(distance_miles, 0, results.grade, alpha=0.3, color='m')
+            self.ax4.set_ylabel("Grade (%)")
+            self.ax4.set_title("Road Grade")
+            self.ax4.grid(True, alpha=0.3)
+            
         self.ax4.set_xlabel("Distance (miles)")
-        self.ax4.set_ylabel("Grade (%)")
-        self.ax4.set_title("Road Grade")
-        self.ax4.grid(True, alpha=0.3)
         
         self.fig.tight_layout()
         self.canvas.draw()
@@ -817,6 +856,10 @@ class RoadLoadSimulatorGUI:
 
         if getattr(self, 'erev_results', None) and self.vehicle.vehicle_class == 'erev':
             er = self.erev_results
+            
+            if er.cycle_failed:
+                data.insert(0, ('STATUS', 'FAILED - Power Deficit'))
+
             data.extend([
                 ('EV Miles', f'{er.ev_only_miles:.2f} mi'),
                 ('Generator Miles', f'{er.generator_miles:.2f} mi'),
