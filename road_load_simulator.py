@@ -1088,7 +1088,7 @@ def save_erev_range_html(
     filename = "erev_range_report.html"
     filepath = os.path.join(output_dir, filename)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
     return filepath
@@ -1449,7 +1449,7 @@ def save_bev_range_html(
     filename = "bev_range_report.html"
     filepath = os.path.join(output_dir, filename)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
     return filepath
@@ -1661,7 +1661,7 @@ def save_summary_text(
     filename = "summary.txt"
     filepath = os.path.join(output_dir, filename)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(summary)
     
     return filepath
@@ -1972,7 +1972,7 @@ def save_summary_html(
     filename = "report.html"
     filepath = os.path.join(output_dir, filename)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
     return filepath
@@ -2701,12 +2701,18 @@ def estimate_erev_range(
             generator_output_w = 0.0
             
             if vehicle.erev_mode == 'charge_depleting':
-                if generator_on:
-                    if current_soc >= sustain_off_pct or fuel_remaining_gallons <= 0:
-                        generator_on = False
-                else:
-                    if current_soc <= sustain_on_pct and fuel_remaining_gallons > 0:
+                # Once battery is depleted, generator stays on until fuel runs out
+                if current_soc <= min_soc:
+                    if fuel_remaining_gallons > 0:
                         generator_on = True
+                else:
+                    # Normal charge-sustaining behavior
+                    if generator_on:
+                        if current_soc >= sustain_off_pct or fuel_remaining_gallons <= 0:
+                            generator_on = False
+                    else:
+                        if current_soc <= sustain_on_pct and fuel_remaining_gallons > 0:
+                            generator_on = True
 
                 if generator_on:
                     generator_active = True
@@ -2716,37 +2722,67 @@ def estimate_erev_range(
                     generator_active = True
                     generator_output_w = generator_power_w
             elif vehicle.erev_mode == 'hold':
+                # In hold mode, generator runs at full power whenever there's demand
+                # Excess power charges the battery (or goes to battery if demand exceeds generator)
                 if demand_w > 0 and fuel_remaining_gallons > 0:
                     generator_active = True
-                    generator_output_w = min(demand_w, generator_power_w)
+                    generator_output_w = generator_power_w  # Always run at full power for efficiency
             
             if demand_w > 0:  # Traction
                 power_from_generator = generator_output_w if generator_active else 0.0
-                power_from_battery = demand_w - power_from_generator
+                power_from_battery = max(0, demand_w - power_from_generator)
                 
-                # Check if we have enough power
-                if power_from_battery > 0 and current_soc <= min_soc:
-                    if not generator_active or fuel_remaining_gallons <= 0:
+                # Calculate excess generator power for charging (hold mode)
+                excess_generator_power = 0.0
+                if generator_active and power_from_generator > demand_w:
+                    excess_generator_power = power_from_generator - demand_w
+                    power_from_generator = demand_w  # Generator only provides what's needed for propulsion
+                
+                # Check if we can continue
+                if current_soc <= min_soc and fuel_remaining_gallons <= 0:
+                    # Both battery and fuel depleted - vehicle stops
+                    cycle_complete = False
+                    break
+                elif current_soc <= min_soc and power_from_battery > 0:
+                    # Battery depleted but generator has fuel
+                    # Vehicle can only use generator power (reduced performance mode)
+                    if generator_active and fuel_remaining_gallons > 0:
+                        # Continue with generator power only
+                        power_from_battery = 0
+                        # If demand exceeds generator capacity, vehicle operates at reduced power
+                    else:
+                        # No generator available, can't continue
                         cycle_complete = False
                         break
                 
-                # Update battery
-                if power_from_battery > 0:
+                # Determine which power source is primary for distance tracking
+                # If generator is providing ANY power, count as generator miles
+                using_generator = generator_active and (power_from_generator > 0 or excess_generator_power > 0)
+                
+                # Update battery - discharge for propulsion
+                if power_from_battery > 0 and current_soc > min_soc:
                     battery_energy_j = power_from_battery * step_dt
                     soc_change = (battery_energy_j / usable_capacity_j) * 100.0
                     current_soc -= soc_change
                     current_soc = max(current_soc, min_soc)
                     total_battery_energy_j += battery_energy_j
                 
-                # Update fuel
-                if generator_active and power_from_generator > 0:
-                    generator_energy_j = power_from_generator * step_dt
+                # Update battery - charge from excess generator power
+                if excess_generator_power > 0 and current_soc < 100.0:
+                    charge_energy_j = excess_generator_power * step_dt * vehicle.regen_efficiency
+                    soc_change = (charge_energy_j / usable_capacity_j) * 100.0
+                    current_soc += soc_change
+                    current_soc = min(current_soc, 100.0)
+                
+                # Update fuel - generator consumes fuel for all its output (propulsion + charging)
+                if using_generator:
+                    generator_energy_j = generator_output_w * step_dt  # Total generator output
                     fuel_used = generator_energy_j * fuel_consumption_gal_per_j
                     fuel_remaining_gallons -= fuel_used
                     fuel_remaining_gallons = max(fuel_remaining_gallons, 0)
                     total_fuel_used += fuel_used
                     generator_distance_m += distance_this_step
-                    generator_output_trace.append(power_from_generator / 1000.0)
+                    generator_output_trace.append(generator_output_w / 1000.0)
                     generator_on_trace.append(1)
                 else:
                     ev_distance_m += distance_this_step
@@ -2805,3 +2841,284 @@ def estimate_erev_range(
         'time_trace': np.array(time_trace)
     }
 
+
+def estimate_erev_range_multi_cycle(
+    vehicle: VehicleParams,
+    starting_soc: float = 100.0
+) -> dict:
+    """
+    Estimate EREV range using EPA multi-cycle test.
+    Consists of 4 city cycles (UDDS), 2 highway cycles (HWFET), and 2 constant speed cycles.
+    
+    Args:
+        vehicle: Vehicle parameters with EREV fields set
+        starting_soc: Initial state of charge (%)
+        
+    Returns:
+        Dictionary with range estimation results (same format as estimate_erev_range)
+    """
+    # Define the multi-cycle sequence
+    cycle_sequence = [
+        ('UDDS', 4),           # 4 city cycles
+        ('HWFET', 2),          # 2 highway cycles
+        ('constant_70mph', 2)  # 2 constant speed cycles
+    ]
+    
+    # Load all cycle files (all in m/s format)
+    cycles_data = {}
+    for cycle_name, _ in cycle_sequence:
+        filepath = os.path.join('drive_cycles', f'{cycle_name}.csv')
+        cycles_data[cycle_name] = load_drive_cycle(filepath)
+    
+    # Battery parameters
+    usable_capacity_kwh = vehicle.battery_capacity * (vehicle.usable_battery_pct / 100.0)
+    usable_capacity_j = usable_capacity_kwh * 3.6e6
+    starting_soc = min(max(starting_soc, 0.0), 100.0)
+    min_soc_limit = max(0.0, 100.0 - vehicle.usable_battery_pct)
+    min_soc = min(starting_soc, min_soc_limit)
+    
+    # Generator/fuel parameters
+    generator_power_w = vehicle.generator_power_kw * 1000.0
+    gasoline_density_g_per_gallon = 2834.0
+    bsfc_g_per_j = vehicle.bsfc_g_kwh / 3.6e6
+    fuel_consumption_gal_per_j = bsfc_g_per_j / gasoline_density_g_per_gallon
+    
+    # Initialize state
+    current_soc = starting_soc
+    fuel_remaining_gallons = vehicle.fuel_tank_gallons
+
+    # Generator sustain band to avoid on/off thrash
+    sustain_on_pct = vehicle.soc_sustain_pct
+    sustain_off_pct = min(100.0, vehicle.soc_sustain_pct + 2.0)
+    generator_on = False
+    
+    # Tracking
+    total_distance_m = 0.0
+    ev_distance_m = 0.0
+    generator_distance_m = 0.0
+    total_fuel_used = 0.0
+    total_battery_energy_j = 0.0
+    total_multi_cycles = 0
+    cycle_breakdown = {name: {'count': 0, 'distance_mi': 0, 'energy_kwh': 0} 
+                      for name, _ in cycle_sequence}
+    
+    soc_trace = []
+    generator_output_trace = []
+    generator_on_trace = []
+    fuel_remaining_trace = []
+    distance_miles_trace = []
+    time_trace = []
+    cumulative_distance_m = 0.0
+    cumulative_time = 0.0
+    
+    # Run multi-cycle sequences until both battery and fuel are depleted
+    max_sequences = 100  # Safety limit
+    sequence_count = 0
+    
+    while sequence_count < max_sequences:
+        # Check if we can continue
+        if current_soc <= min_soc and fuel_remaining_gallons <= 0:
+            break
+        
+        sequence_complete = True
+        
+        # Run through the entire sequence
+        for cycle_name, count in cycle_sequence:
+            cycle = cycles_data[cycle_name]
+            
+            for cycle_iteration in range(count):
+                # Check if we can continue
+                if current_soc <= min_soc and fuel_remaining_gallons <= 0:
+                    sequence_complete = False
+                    break
+                
+                # Run one cycle
+                results = calculate_road_load(vehicle, cycle)
+                time = results.time
+                power_demand_w = results.power
+                speed = results.speed
+                dt = np.diff(time, prepend=0)
+                
+                cycle_complete = True
+                cycle_distance_m = 0.0
+                cycle_ev_distance_m = 0.0
+                cycle_gen_distance_m = 0.0
+                cycle_battery_energy_j = 0.0
+                cycle_fuel_used = 0.0
+                
+                for i in range(len(time)):
+                    demand_w = power_demand_w[i]
+                    step_dt = dt[i]
+                    distance_this_step = speed[i] * step_dt
+                    
+                    # Determine generator activity
+                    generator_active = False
+                    generator_output_w = 0.0
+                    
+                    if vehicle.erev_mode == 'charge_depleting':
+                        # Once battery is depleted, generator stays on until fuel runs out
+                        if current_soc <= min_soc:
+                            if fuel_remaining_gallons > 0:
+                                generator_on = True
+                        else:
+                            # Normal charge-sustaining behavior
+                            if generator_on:
+                                if current_soc >= sustain_off_pct or fuel_remaining_gallons <= 0:
+                                    generator_on = False
+                            else:
+                                if current_soc <= sustain_on_pct and fuel_remaining_gallons > 0:
+                                    generator_on = True
+
+                        if generator_on:
+                            generator_active = True
+                            generator_output_w = generator_power_w
+                    elif vehicle.erev_mode == 'blended':
+                        if fuel_remaining_gallons > 0 and current_soc <= vehicle.soc_blended_threshold_pct:
+                            generator_active = True
+                            generator_output_w = generator_power_w
+                    elif vehicle.erev_mode == 'hold':
+                        # In hold mode, generator runs at full power whenever there's demand
+                        # Excess power charges the battery (or goes to battery if demand exceeds generator)
+                        if demand_w > 0 and fuel_remaining_gallons > 0:
+                            generator_active = True
+                            generator_output_w = generator_power_w  # Always run at full power for efficiency
+                    
+                    if demand_w > 0:  # Traction
+                        power_from_generator = generator_output_w if generator_active else 0.0
+                        power_from_battery = max(0, demand_w - power_from_generator)
+                        
+                        # Calculate excess generator power for charging (hold mode)
+                        excess_generator_power = 0.0
+                        if generator_active and power_from_generator > demand_w:
+                            excess_generator_power = power_from_generator - demand_w
+                            power_from_generator = demand_w  # Generator only provides what's needed for propulsion
+                        
+                        # Check if we can continue
+                        if current_soc <= min_soc and fuel_remaining_gallons <= 0:
+                            # Both battery and fuel depleted - vehicle stops
+                            cycle_complete = False
+                            break
+                        elif current_soc <= min_soc and power_from_battery > 0:
+                            # Battery depleted but generator has fuel
+                            # Vehicle can only use generator power (reduced performance mode)
+                            if generator_active and fuel_remaining_gallons > 0:
+                                # Continue with generator power only
+                                power_from_battery = 0
+                                # If demand exceeds generator capacity, vehicle operates at reduced power
+                            else:
+                                # No generator available, can't continue
+                                cycle_complete = False
+                                break
+                        
+                        # Determine which power source is primary for distance tracking
+                        # If generator is providing ANY power, count as generator miles
+                        using_generator = generator_active and (power_from_generator > 0 or excess_generator_power > 0)
+                        
+                        # Update battery - discharge for propulsion
+                        if power_from_battery > 0 and current_soc > min_soc:
+                            battery_energy_j = power_from_battery * step_dt
+                            soc_change = (battery_energy_j / usable_capacity_j) * 100.0
+                            current_soc -= soc_change
+                            current_soc = max(current_soc, min_soc)
+                            total_battery_energy_j += battery_energy_j
+                            cycle_battery_energy_j += battery_energy_j
+                        
+                        # Update battery - charge from excess generator power
+                        if excess_generator_power > 0 and current_soc < 100.0:
+                            charge_energy_j = excess_generator_power * step_dt * vehicle.regen_efficiency
+                            soc_change = (charge_energy_j / usable_capacity_j) * 100.0
+                            current_soc += soc_change
+                            current_soc = min(current_soc, 100.0)
+                        
+                        # Update fuel - generator consumes fuel for all its output (propulsion + charging)
+                        if using_generator:
+                            generator_energy_j = generator_output_w * step_dt  # Total generator output
+                            fuel_used = generator_energy_j * fuel_consumption_gal_per_j
+                            fuel_remaining_gallons -= fuel_used
+                            fuel_remaining_gallons = max(fuel_remaining_gallons, 0)
+                            total_fuel_used += fuel_used
+                            cycle_fuel_used += fuel_used
+                            generator_distance_m += distance_this_step
+                            cycle_gen_distance_m += distance_this_step
+                            generator_output_trace.append(generator_output_w / 1000.0)
+                            generator_on_trace.append(1)
+                        else:
+                            ev_distance_m += distance_this_step
+                            cycle_ev_distance_m += distance_this_step
+                            generator_output_trace.append(0.0)
+                            generator_on_trace.append(0)
+                            
+                        total_distance_m += distance_this_step
+                        cycle_distance_m += distance_this_step
+                        
+                    else:  # Regen
+                        regen_energy_j = abs(demand_w) * step_dt
+                        soc_change = (regen_energy_j / usable_capacity_j) * 100.0
+                        current_soc += soc_change
+                        current_soc = min(current_soc, 100.0)
+                        ev_distance_m += distance_this_step
+                        cycle_ev_distance_m += distance_this_step
+                        total_distance_m += distance_this_step
+                        cycle_distance_m += distance_this_step
+                        generator_output_trace.append(0.0)
+                        generator_on_trace.append(0)
+
+                    cumulative_distance_m += distance_this_step
+                    cumulative_time += step_dt
+                    soc_trace.append(current_soc)
+                    fuel_remaining_trace.append(fuel_remaining_gallons)
+                    distance_miles_trace.append(cumulative_distance_m / 1609.34)
+                    time_trace.append(cumulative_time)
+                
+                if cycle_complete:
+                    # Update breakdown for completed cycle
+                    cycle_breakdown[cycle_name]['count'] += 1
+                    cycle_breakdown[cycle_name]['distance_mi'] += cycle_distance_m / 1609.34
+                    cycle_breakdown[cycle_name]['energy_kwh'] += (cycle_battery_energy_j / 3.6e6) + (cycle_fuel_used * GASOLINE_ENERGY_KWH_PER_GALLON)
+                else:
+                    # Partial cycle
+                    if cycle_distance_m > 0:
+                        cycle_breakdown[cycle_name]['distance_mi'] += cycle_distance_m / 1609.34
+                        cycle_breakdown[cycle_name]['energy_kwh'] += (cycle_battery_energy_j / 3.6e6) + (cycle_fuel_used * GASOLINE_ENERGY_KWH_PER_GALLON)
+                    sequence_complete = False
+                    break
+            
+            if not sequence_complete:
+                break
+        
+        if sequence_complete:
+            total_multi_cycles += 1
+            sequence_count += 1
+        else:
+            break
+    
+    # Calculate results
+    total_distance_miles = total_distance_m / 1609.34
+    ev_only_miles = ev_distance_m / 1609.34
+    generator_miles = generator_distance_m / 1609.34
+    battery_energy_kwh = total_battery_energy_j / 3.6e6
+    
+    # Efficiency
+    total_energy_kwh = battery_energy_kwh + (total_fuel_used * GASOLINE_ENERGY_KWH_PER_GALLON)
+    kwh_per_mile = total_energy_kwh / total_distance_miles if total_distance_miles > 0 else 0
+    mpge = total_distance_miles / (total_energy_kwh / 33.7) if total_energy_kwh > 0 else 0
+    
+    return {
+        'range_miles': total_distance_miles,
+        'range_km': total_distance_miles * 1.60934,
+        'ev_only_miles': ev_only_miles,
+        'generator_miles': generator_miles,
+        'battery_energy_kwh': battery_energy_kwh,
+        'fuel_used_gallons': total_fuel_used,
+        'final_soc': current_soc,
+        'cycles_completed': total_multi_cycles,  # Number of complete multi-cycle sequences
+        'mpge': mpge,
+        'kwh_per_mile': kwh_per_mile,
+        'cycle_breakdown': cycle_breakdown,
+        'soc_trace': np.array(soc_trace),
+        'generator_output_kw': np.array(generator_output_trace),
+        'generator_on_flags': np.array(generator_on_trace),
+        'fuel_remaining_gal': np.array(fuel_remaining_trace),
+        'distance_miles_trace': np.array(distance_miles_trace),
+        'time_trace': np.array(time_trace)
+    }

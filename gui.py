@@ -24,6 +24,7 @@ from road_load_simulator import (
     simulate_erev,
     simulate_gasoline,
     estimate_erev_range,
+    estimate_erev_range_multi_cycle,
     EREVResults,
     create_output_directory,
     generate_summary_text,
@@ -159,12 +160,25 @@ class RoadLoadSimulatorGUI:
         def on_enter(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            # Improved positioning for Windows compatibility
+            x = event.x_root + 10
+            y = event.y_root + 10
+            # Ensure tooltip stays on screen
+            try:
+                screen_width = tooltip.winfo_screenwidth()
+                screen_height = tooltip.winfo_screenheight()
+                if x + 420 > screen_width:  # 420 = wraplength + padding
+                    x = screen_width - 420
+                if y + 100 > screen_height:
+                    y = event.y_root - 100
+            except:
+                pass  # Fallback to default position if screen info unavailable
+            tooltip.wm_geometry(f"+{x}+{y}")
             label = tk.Label(tooltip, text=text, 
                            background="#ffffcc",  # Light yellow background
                            foreground="#000000",  # Black text for readability
                            relief="solid", borderwidth=1, 
-                           font=("Arial", 10),
+                           font=("TkDefaultFont", 10),  # Use system default font
                            wraplength=400, justify=tk.LEFT, 
                            padx=10, pady=8)
             label.pack()
@@ -186,7 +200,7 @@ class RoadLoadSimulatorGUI:
 
         # Title
         title = ttk.Label(parent, text="Simulation Parameters", 
-                         font=("Arial", 14, "bold"))
+                         font=("TkHeadingFont", 14, "bold"))
         title.grid(row=0, column=0, columnspan=2, pady=(0, 20))
         
         # Vehicle Parameters Section
@@ -934,13 +948,19 @@ class RoadLoadSimulatorGUI:
         dialog = tk.Toplevel(self.root)
         dialog.title("Load Preset")
         dialog.geometry("400x500")
+        dialog.minsize(400, 400)  # Ensure minimum size on Windows
+        dialog.grab_set()  # Make dialog modal
         
         ttk.Label(dialog, text=f"Select a {self.vehicle_class_dropdown.get()} preset:", 
-                 font=("Arial", 12)).pack(pady=10)
+                 font=("TkDefaultFont", 12)).pack(pady=10)
+        
+        # Container for scrollable list (prevent it from consuming button area)
+        list_container = ttk.Frame(dialog)
+        list_container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         
         # Scrollable frame for presets
-        canvas = tk.Canvas(dialog)
-        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        canvas = tk.Canvas(list_container)
+        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
         scrollable_frame.bind(
@@ -956,7 +976,7 @@ class RoadLoadSimulatorGUI:
             ttk.Radiobutton(scrollable_frame, text=preset['name'], variable=preset_var,
                           value=preset['name']).pack(anchor=tk.W, padx=20, pady=5)
         
-        canvas.pack(side="left", fill="both", expand=True, padx=10)
+        canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
         def apply_preset():
@@ -996,9 +1016,11 @@ class RoadLoadSimulatorGUI:
             
             dialog.destroy()
         
+        # Buttons (packed outside the scrollable container)
         button_frame = ttk.Frame(dialog)
         button_frame.pack(pady=10)
-        ttk.Button(button_frame, text="Apply", command=apply_preset).pack()
+        ttk.Button(button_frame, text="Apply", command=apply_preset, width=12).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy, width=12).pack(side=tk.LEFT, padx=5)
 
     def save_preset(self):
         """Save current vehicle parameters as a preset."""
@@ -1020,9 +1042,10 @@ class RoadLoadSimulatorGUI:
         dialog = tk.Toplevel(self.root)
         dialog.title("Save Preset")
         dialog.geometry("450x300")
+        dialog.minsize(400, 250)  # Ensure minimum size on Windows
         dialog.grab_set()
         
-        ttk.Label(dialog, text="Save Vehicle Preset", font=("Arial", 14, "bold")).pack(pady=10)
+        ttk.Label(dialog, text="Save Vehicle Preset", font=("TkHeadingFont", 14, "bold")).pack(pady=10)
         
         # Preset name input
         name_frame = ttk.Frame(dialog)
@@ -1040,7 +1063,7 @@ class RoadLoadSimulatorGUI:
         # Show existing presets for this class
         if existing_names:
             ttk.Label(dialog, text=f"Existing {self.vehicle_class_dropdown.get()} presets:", 
-                     font=("Arial", 10)).pack(pady=(10, 5))
+                     font=("TkDefaultFont", 10)).pack(pady=(10, 5))
             
             list_frame = ttk.Frame(dialog)
             list_frame.pack(pady=5, padx=20, fill=tk.BOTH, expand=True)
@@ -1150,6 +1173,7 @@ class RangeEstimatorGUI:
         self.window = tk.Toplevel(parent)
         self.window.title("Range Estimator")
         self.window.geometry("950x700")
+        self.window.minsize(800, 600)  # Ensure minimum size on Windows
         
         # Main container
         main_frame = ttk.Frame(self.window, padding="10")
@@ -1162,7 +1186,7 @@ class RangeEstimatorGUI:
             'gasoline': "Gasoline Vehicle Range Estimator"
         }.get(vehicle.vehicle_class, "Range Estimator")
         
-        title = ttk.Label(main_frame, text=title_text, font=("Arial", 16, "bold"))
+        title = ttk.Label(main_frame, text=title_text, font=("TkHeadingFont", 16, "bold"))
         title.pack(pady=(0, 20))
         
         # Vehicle info display
@@ -1198,7 +1222,7 @@ class RangeEstimatorGUI:
         config_frame.pack(fill=tk.X, pady=(0, 20))
         
         # Test mode selection
-        ttk.Label(config_frame, text="Test Mode:", font=("Arial", 10, "bold")).grid(
+        ttk.Label(config_frame, text="Test Mode:", font=("TkDefaultFont", 10, "bold")).grid(
             row=0, column=0, sticky=tk.W, pady=5, padx=5)
         
         self.test_mode = tk.StringVar(value="constant_70mph")
@@ -1230,7 +1254,7 @@ class RangeEstimatorGUI:
         
         # Starting SOC for EREV
         if vehicle.vehicle_class == 'erev':
-            ttk.Label(config_frame, text="Starting SOC %:", font=("Arial", 10, "bold")).grid(
+            ttk.Label(config_frame, text="Starting SOC %:", font=("TkDefaultFont", 10, "bold")).grid(
                 row=1, column=1, sticky=tk.W, pady=5, padx=20)
             self.starting_soc_var = tk.StringVar(value=str(starting_soc))
             ttk.Entry(config_frame, textvariable=self.starting_soc_var, width=10).grid(
@@ -1301,10 +1325,9 @@ class RangeEstimatorGUI:
             elif self.vehicle.vehicle_class == 'erev':
                 starting_soc = float(self.starting_soc_var.get())
                 if cycle_name == "multi_cycle":
-                    # For EREV multi-cycle, we run estimate_erev_range
-                    self.range_results = estimate_erev_range(
+                    # For EREV multi-cycle, we run the proper multi-cycle test
+                    self.range_results = estimate_erev_range_multi_cycle(
                         self.vehicle, 
-                        os.path.join("drive_cycles", "constant_70mph.csv"),
                         starting_soc
                     )
                 else:
@@ -1349,7 +1372,7 @@ class RangeEstimatorGUI:
 
                 summary_path = os.path.join(run_output_dir, "erev_range_summary.txt")
                 r = self.range_results
-                with open(summary_path, 'w') as f:
+                with open(summary_path, 'w', encoding='utf-8') as f:
                     f.write("EREV Range Estimation Summary\n")
                     f.write(f"Cycle: {cycle_name}\n")
                     f.write(f"Range: {r['range_miles']:.2f} mi ({r['range_km']:.2f} km)\n")
@@ -1397,7 +1420,7 @@ class RangeEstimatorGUI:
                 
                 summary_path = os.path.join(run_output_dir, "bev_range_summary.txt")
                 r = self.range_results
-                with open(summary_path, 'w') as f:
+                with open(summary_path, 'w', encoding='utf-8') as f:
                     f.write("BEV Range Estimation Summary\n")
                     f.write(f"Cycle: {cycle_name}\n")
                     f.write(f"Range: {r['range_miles']:.2f} mi ({r['range_km']:.2f} km)\n")
@@ -1459,22 +1482,55 @@ class RangeEstimatorGUI:
             self.results_tree.delete(item)
         
         r = self.range_results
-        data = [
-            ('Test Cycle', cycle_name),
-            ('EREV Mode', self.vehicle.erev_mode),
-            ('', ''),
-            ('Total Range', f"{r['range_miles']:.1f} miles  ({r['range_km']:.1f} km)"),
-            ('EV-Only Miles', f"{r['ev_only_miles']:.1f} miles"),
-            ('Generator Miles', f"{r['generator_miles']:.1f} miles"),
-            ('', ''),
-            ('Battery Energy Used', f"{r['battery_energy_kwh']:.2f} kWh"),
-            ('Fuel Used', f"{r['fuel_used_gallons']:.2f} gallons"),
-            ('Final SOC', f"{r['final_soc']:.1f}%"),
-            ('', ''),
-            ('Efficiency (MPGe)', f"{r['mpge']:.1f} MPGe"),
-            ('Energy per Mile', f"{r['kwh_per_mile']:.3f} kWh/mile"),
-            ('Cycles Completed', f"{r['cycles_completed']}"),
-        ]
+        is_multi_cycle = 'cycle_breakdown' in r
+        
+        if is_multi_cycle:
+            # Multi-cycle test display
+            usable_kwh = self.vehicle.battery_capacity * (self.vehicle.usable_battery_pct / 100.0)
+            data = [
+                ('Test Type', 'Multi-Cycle Test (4 UDDS + 2 HWFET + 2 Constant 70mph)'),
+                ('EREV Mode', self.vehicle.erev_mode),
+                ('Battery Capacity', f"{self.vehicle.battery_capacity:.1f} kWh ({self.vehicle.usable_battery_pct:.0f}% usable = {usable_kwh:.1f} kWh)"),
+                ('Fuel Tank', f"{self.vehicle.fuel_tank_gallons:.1f} gallons"),
+                ('', ''),
+                ('Total Range', f"{r['range_miles']:.1f} miles  ({r['range_km']:.1f} km)"),
+                ('EV-Only Miles', f"{r['ev_only_miles']:.1f} miles"),
+                ('Generator Miles', f"{r['generator_miles']:.1f} miles"),
+                ('', ''),
+                ('Battery Energy Used', f"{r['battery_energy_kwh']:.2f} kWh"),
+                ('Fuel Used', f"{r['fuel_used_gallons']:.2f} gallons"),
+                ('Final SOC', f"{r['final_soc']:.1f}%"),
+                ('', ''),
+                ('Efficiency (MPGe)', f"{r['mpge']:.1f} MPGe"),
+                ('Energy per Mile', f"{r['kwh_per_mile']:.3f} kWh/mile"),
+                ('Full Multi-Cycle Sequences', f"{r['cycles_completed']}"),
+                ('', ''),
+                ('Cycle Breakdown:', ''),
+            ]
+            
+            for cycle_type in ['UDDS', 'HWFET', 'constant_70mph']:
+                breakdown = r['cycle_breakdown'][cycle_type]
+                label = {'UDDS': 'City (UDDS)', 'HWFET': 'Highway (HWFET)', 'constant_70mph': 'Constant 70mph'}[cycle_type]
+                data.append((f"  {label}", 
+                           f"{breakdown['count']} cycles, {breakdown['distance_mi']:.1f} mi, {breakdown['energy_kwh']:.2f} kWh"))
+        else:
+            # Single cycle test display
+            data = [
+                ('Test Cycle', cycle_name),
+                ('EREV Mode', self.vehicle.erev_mode),
+                ('', ''),
+                ('Total Range', f"{r['range_miles']:.1f} miles  ({r['range_km']:.1f} km)"),
+                ('EV-Only Miles', f"{r['ev_only_miles']:.1f} miles"),
+                ('Generator Miles', f"{r['generator_miles']:.1f} miles"),
+                ('', ''),
+                ('Battery Energy Used', f"{r['battery_energy_kwh']:.2f} kWh"),
+                ('Fuel Used', f"{r['fuel_used_gallons']:.2f} gallons"),
+                ('Final SOC', f"{r['final_soc']:.1f}%"),
+                ('', ''),
+                ('Efficiency (MPGe)', f"{r['mpge']:.1f} MPGe"),
+                ('Energy per Mile', f"{r['kwh_per_mile']:.3f} kWh/mile"),
+                ('Cycles Completed', f"{r['cycles_completed']}"),
+            ]
         
         self._populate_results(data)
     
