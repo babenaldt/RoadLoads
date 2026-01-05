@@ -53,6 +53,7 @@ class VehicleParams:
     
     # BEV/EREV parameters
     regen_efficiency: float = 0.7  # regenerative braking efficiency (0-1)
+    drivetrain_efficiency: float = 0.9  # motor/inverter/drivetrain efficiency during acceleration (0-1)
     auxiliary_power: float = 0.0  # constant auxiliary power draw in Watts (HVAC, electronics, etc.)
     battery_capacity: float = 75.0  # battery capacity in kWh
     usable_battery_pct: float = 90.0  # usable percentage of battery capacity
@@ -80,6 +81,7 @@ class VehicleParams:
         
         if self.vehicle_class == 'bev':
             base += (
+                f"  Drivetrain Efficiency: {self.drivetrain_efficiency * 100:.1f}%\n"
                 f"  Regen Efficiency: {self.regen_efficiency * 100:.1f}%\n"
                 f"  Auxiliary Power: {self.auxiliary_power:.0f} W\n"
                 f"  Battery Capacity: {self.battery_capacity:.1f} kWh\n"
@@ -87,6 +89,7 @@ class VehicleParams:
             )
         elif self.vehicle_class == 'erev':
             base += (
+                f"  Drivetrain Efficiency: {self.drivetrain_efficiency * 100:.1f}%\n"
                 f"  Regen Efficiency: {self.regen_efficiency * 100:.1f}%\n"
                 f"  Auxiliary Power: {self.auxiliary_power:.0f} W\n"
                 f"  Battery Capacity: {self.battery_capacity:.1f} kWh\n"
@@ -2173,13 +2176,21 @@ def estimate_range(
         # Run one cycle
         results = calculate_road_load(vehicle, cycle)
         
-        # Get net energy for this cycle
-        cycle_energy_j = results.total_energy
+        # Get net energy for this cycle (at wheels)
+        # Account for drivetrain efficiency: battery energy = wheel energy / efficiency
+        cycle_energy_wheels_j = results.total_energy
+        # Separate traction and regen energy
+        dt = np.diff(results.time, prepend=0)
+        traction_energy_j = np.sum(np.where(results.power > 0, results.power * dt, 0))
+        regen_energy_j = np.sum(np.where(results.power < 0, -results.power * dt, 0))
+        
+        # Battery energy needed: traction losses / efficiency, regen already has efficiency applied
+        cycle_energy_battery_j = (traction_energy_j / vehicle.drivetrain_efficiency) + regen_energy_j
         
         # Check if we can complete this cycle
-        if total_energy_j + cycle_energy_j <= usable_battery_j:
+        if total_energy_j + cycle_energy_battery_j <= usable_battery_j:
             # Complete full cycle
-            total_energy_j += cycle_energy_j
+            total_energy_j += cycle_energy_battery_j
             # Calculate distance for this cycle
             dt = np.diff(results.time, prepend=0)
             cycle_distance_m = np.sum(results.speed * dt)
@@ -2188,7 +2199,7 @@ def estimate_range(
         else:
             # Partial cycle - estimate remaining distance
             remaining_energy_j = usable_battery_j - total_energy_j
-            fraction = remaining_energy_j / cycle_energy_j
+            fraction = remaining_energy_j / cycle_energy_battery_j
             dt = np.diff(results.time, prepend=0)
             cycle_distance_m = np.sum(results.speed * dt)
             total_distance_m += cycle_distance_m * fraction
@@ -2270,24 +2281,28 @@ def estimate_range_multi_cycle(
             for _ in range(count):
                 # Run one cycle
                 results = calculate_road_load(vehicle, cycle)
-                cycle_energy_j = results.total_energy
+                
+                # Account for drivetrain efficiency
+                dt = np.diff(results.time, prepend=0)
+                traction_energy_j = np.sum(np.where(results.power > 0, results.power * dt, 0))
+                regen_energy_j = np.sum(np.where(results.power < 0, -results.power * dt, 0))
+                cycle_energy_battery_j = (traction_energy_j / vehicle.drivetrain_efficiency) + regen_energy_j
                 
                 # Check if we can complete this cycle
-                if total_energy_j + cycle_energy_j <= usable_battery_j:
+                if total_energy_j + cycle_energy_battery_j <= usable_battery_j:
                     # Complete full cycle
-                    total_energy_j += cycle_energy_j
-                    dt = np.diff(results.time, prepend=0)
+                    total_energy_j += cycle_energy_battery_j
                     cycle_distance_m = np.sum(results.speed * dt)
                     total_distance_m += cycle_distance_m
                     
                     # Update breakdown
                     cycle_breakdown[cycle_name]['count'] += 1
                     cycle_breakdown[cycle_name]['distance_mi'] += cycle_distance_m / 1609.34
-                    cycle_breakdown[cycle_name]['energy_kwh'] += cycle_energy_j / 3.6e6
+                    cycle_breakdown[cycle_name]['energy_kwh'] += cycle_energy_battery_j / 3.6e6
                 else:
                     # Partial cycle - estimate remaining distance
                     remaining_energy_j = usable_battery_j - total_energy_j
-                    fraction = remaining_energy_j / cycle_energy_j
+                    fraction = remaining_energy_j / cycle_energy_battery_j
                     dt = np.diff(results.time, prepend=0)
                     cycle_distance_m = np.sum(results.speed * dt)
                     total_distance_m += cycle_distance_m * fraction
@@ -2487,9 +2502,12 @@ def simulate_erev(
     current_soc = starting_soc
     fuel_remaining_gallons = vehicle.fuel_tank_gallons
 
-    # Generator sustain band to avoid on/off thrash
-    sustain_on_pct = vehicle.soc_sustain_pct
-    sustain_off_pct = min(100.0, vehicle.soc_sustain_pct + 2.0)
+    # Convert customer-visible SOC thresholds to absolute SOC
+    # Customer sees 0% at min_soc_limit, 100% at 100% absolute
+    # So threshold_absolute = min_soc_limit + (usable_battery_pct * threshold_customer / 100)
+    sustain_on_pct = min_soc_limit + (vehicle.usable_battery_pct * vehicle.soc_sustain_pct / 100.0)
+    sustain_off_pct = min(100.0, sustain_on_pct + 2.0)
+    blended_threshold_absolute = min_soc_limit + (vehicle.usable_battery_pct * vehicle.soc_blended_threshold_pct / 100.0)
     generator_on = False
     
     # Tracking arrays and counters
@@ -2548,7 +2566,7 @@ def simulate_erev(
             # 1. SOC is below blended threshold, OR
             # 2. Power demand exceeds what battery can reasonably provide
             if fuel_remaining_gallons > 0:
-                if current_soc <= vehicle.soc_blended_threshold_pct:
+                if current_soc <= blended_threshold_absolute:
                     generator_active = True
                     generator_output_w = generator_power_w
                 elif demand_w > 0 and demand_w > generator_power_w * 0.8:
@@ -2585,8 +2603,9 @@ def simulate_erev(
                     'deficit_kw': deficit_kw
                 })
             
-            # Update battery SOC
-            battery_energy_j = power_from_battery * step_dt
+            # Update battery SOC - account for drivetrain efficiency losses
+            # Battery must supply power_from_battery / drivetrain_efficiency
+            battery_energy_j = (power_from_battery / vehicle.drivetrain_efficiency) * step_dt
             soc_change = (battery_energy_j / usable_capacity_j) * 100.0
             current_soc -= soc_change
             current_soc = max(current_soc, min_soc)
@@ -2714,9 +2733,10 @@ def estimate_erev_range(
     current_soc = starting_soc
     fuel_remaining_gallons = vehicle.fuel_tank_gallons
 
-    # Generator sustain band to avoid on/off thrash
-    sustain_on_pct = vehicle.soc_sustain_pct
-    sustain_off_pct = min(100.0, vehicle.soc_sustain_pct + 2.0)
+    # Convert customer-visible SOC thresholds to absolute SOC
+    sustain_on_pct = min_soc_limit + (vehicle.usable_battery_pct * vehicle.soc_sustain_pct / 100.0)
+    sustain_off_pct = min(100.0, sustain_on_pct + 2.0)
+    blended_threshold_absolute = min_soc_limit + (vehicle.usable_battery_pct * vehicle.soc_blended_threshold_pct / 100.0)
     generator_on = False
     
     # Tracking
@@ -2784,7 +2804,7 @@ def estimate_erev_range(
                     generator_active = True
                     generator_output_w = generator_power_w
             elif vehicle.erev_mode == 'blended':
-                if fuel_remaining_gallons > 0 and current_soc <= vehicle.soc_blended_threshold_pct:
+                if fuel_remaining_gallons > 0 and current_soc <= blended_threshold_absolute:
                     generator_active = True
                     generator_output_w = generator_power_w
             elif vehicle.erev_mode == 'hold':
@@ -2830,9 +2850,9 @@ def estimate_erev_range(
                 # If generator is providing ANY power, count as generator miles
                 using_generator = generator_active and (power_from_generator > 0 or excess_generator_power > 0)
                 
-                # Update battery - discharge for propulsion
+                # Update battery - discharge for propulsion (account for drivetrain efficiency)
                 if power_from_battery > 0 and current_soc > min_soc:
-                    battery_energy_j = power_from_battery * step_dt
+                    battery_energy_j = (power_from_battery / vehicle.drivetrain_efficiency) * step_dt
                     soc_change = (battery_energy_j / usable_capacity_j) * 100.0
                     current_soc -= soc_change
                     current_soc = max(current_soc, min_soc)
@@ -2886,6 +2906,8 @@ def estimate_erev_range(
     total_distance_miles = total_distance_m / 1609.34
     
     # Determine EV vs Generator miles based on mode
+    # EV Range = miles traveled on battery alone (before generator starts)
+    # Generator Range = all miles after generator starts (supplemental range from fuel)
     if generator_has_started:
         if vehicle.erev_mode == 'charge_depleting':
             # In CD mode, EV miles is the initial range before generator starts
@@ -2897,9 +2919,9 @@ def estimate_erev_range(
             ev_only_miles = 0.0
             generator_miles = total_distance_miles
         else:
-            # Blended mode - stick to engine-on tracking
-            ev_only_miles = ev_distance_m / 1609.34
-            generator_miles = generator_distance_m / 1609.34
+            # Blended mode - same logic: EV miles before generator, generator miles after
+            ev_only_miles = initial_ev_range_m / 1609.34
+            generator_miles = total_distance_miles - ev_only_miles
     else:
         # Generator never started
         ev_only_miles = total_distance_miles
@@ -2979,9 +3001,10 @@ def estimate_erev_range_multi_cycle(
     current_soc = starting_soc
     fuel_remaining_gallons = vehicle.fuel_tank_gallons
 
-    # Generator sustain band to avoid on/off thrash
-    sustain_on_pct = vehicle.soc_sustain_pct
-    sustain_off_pct = min(100.0, vehicle.soc_sustain_pct + 2.0)
+    # Convert customer-visible SOC thresholds to absolute SOC
+    sustain_on_pct = min_soc_limit + (vehicle.usable_battery_pct * vehicle.soc_sustain_pct / 100.0)
+    sustain_off_pct = min(100.0, sustain_on_pct + 2.0)
+    blended_threshold_absolute = min_soc_limit + (vehicle.usable_battery_pct * vehicle.soc_blended_threshold_pct / 100.0)
     generator_on = False
     
     # Tracking
@@ -3069,7 +3092,7 @@ def estimate_erev_range_multi_cycle(
                             generator_active = True
                             generator_output_w = generator_power_w
                     elif vehicle.erev_mode == 'blended':
-                        if fuel_remaining_gallons > 0 and current_soc <= vehicle.soc_blended_threshold_pct:
+                        if fuel_remaining_gallons > 0 and current_soc <= blended_threshold_absolute:
                             generator_active = True
                             generator_output_w = generator_power_w
                     elif vehicle.erev_mode == 'hold':
@@ -3115,9 +3138,9 @@ def estimate_erev_range_multi_cycle(
                         # If generator is providing ANY power, count as generator miles
                         using_generator = generator_active and (power_from_generator > 0 or excess_generator_power > 0)
                         
-                        # Update battery - discharge for propulsion
+                        # Update battery - discharge for propulsion (account for drivetrain efficiency)
                         if power_from_battery > 0 and current_soc > min_soc:
-                            battery_energy_j = power_from_battery * step_dt
+                            battery_energy_j = (power_from_battery / vehicle.drivetrain_efficiency) * step_dt
                             soc_change = (battery_energy_j / usable_capacity_j) * 100.0
                             current_soc -= soc_change
                             current_soc = max(current_soc, min_soc)
@@ -3197,6 +3220,8 @@ def estimate_erev_range_multi_cycle(
     total_distance_miles = total_distance_m / 1609.34
     
     # Determine EV vs Generator miles based on mode
+    # EV Range = miles traveled on battery alone (before generator starts)
+    # Generator Range = all miles after generator starts (supplemental range from fuel)
     if generator_has_started:
         if vehicle.erev_mode == 'charge_depleting':
             ev_only_miles = initial_ev_range_m / 1609.34
@@ -3205,8 +3230,9 @@ def estimate_erev_range_multi_cycle(
             ev_only_miles = 0.0
             generator_miles = total_distance_miles
         else:
-            ev_only_miles = ev_distance_m / 1609.34
-            generator_miles = generator_distance_m / 1609.34
+            # Blended mode - same logic: EV miles before generator, generator miles after
+            ev_only_miles = initial_ev_range_m / 1609.34
+            generator_miles = total_distance_miles - ev_only_miles
     else:
         ev_only_miles = total_distance_miles
         generator_miles = 0.0
