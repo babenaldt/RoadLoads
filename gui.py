@@ -272,6 +272,13 @@ class RoadLoadSimulatorGUI:
         self.bev_frame.columnconfigure(1, weight=1)
         
         bev_row = 0
+        ttk.Label(self.bev_frame, text="Drivetrain Efficiency:").grid(
+            row=bev_row, column=0, sticky=tk.W, pady=5)
+        self.drivetrain_eff_var = tk.StringVar(value="0.9")
+        ttk.Entry(self.bev_frame, textvariable=self.drivetrain_eff_var).grid(
+            row=bev_row, column=1, padx=5, pady=5, sticky=(tk.W, tk.E))
+        
+        bev_row += 1
         ttk.Label(self.bev_frame, text="Regen Efficiency:").grid(
             row=bev_row, column=0, sticky=tk.W, pady=5)
         self.regen_var = tk.StringVar(value="0.75")
@@ -582,6 +589,7 @@ class RoadLoadSimulatorGUI:
             
             if vehicle_class == 'bev':
                 params.update({
+                    'drivetrain_efficiency': float(self.drivetrain_eff_var.get()),
                     'regen_efficiency': float(self.regen_var.get()),
                     'auxiliary_power': float(self.aux_power_var.get()),
                     'battery_capacity': float(self.battery_var.get()),
@@ -589,6 +597,7 @@ class RoadLoadSimulatorGUI:
                 })
             elif vehicle_class == 'erev':
                 params.update({
+                    'drivetrain_efficiency': float(self.drivetrain_eff_var.get()),
                     'regen_efficiency': float(self.regen_var.get()),
                     'auxiliary_power': float(self.aux_power_var.get()),
                     'battery_capacity': float(self.battery_var.get()),
@@ -1040,6 +1049,7 @@ class RoadLoadSimulatorGUI:
             
             # Apply class-specific parameters
             if current_class in ['bev', 'erev']:
+                self.drivetrain_eff_var.set(str(preset.get("drivetrain_efficiency", "0.9")))
                 self.regen_var.set(str(preset.get("regen", "0.7")))
                 self.aux_power_var.set(str(preset.get("aux_power", "0")))
                 self.battery_var.set(str(preset.get("battery", "75")))
@@ -1161,6 +1171,7 @@ class RoadLoadSimulatorGUI:
             # Add class-specific parameters
             if current_class in ['bev', 'erev']:
                 new_preset.update({
+                    "drivetrain_efficiency": float(self.drivetrain_eff_var.get()),
                     "regen": float(self.regen_var.get()),
                     "aux_power": float(self.aux_power_var.get()),
                     "battery": float(self.battery_var.get()),

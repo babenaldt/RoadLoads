@@ -14,13 +14,16 @@ This simulator calculates the power and energy requirements for a vehicle travel
   - **Extended Range EV (EREV)**: Battery + gasoline generator with three operating modes
   - **Gasoline**: Traditional ICE vehicle with fuel economy modeling
 - **Modular Design** - Separate physics model, GUI, and visualization components
-- **External Preset Library** - Easy-to-edit JSON file for vehicle configurations
+- **External Preset Library** - Easy-to-edit JSON file for vehicle configurations, including towing configurations
 - **Multiple Drive Cycles** - EPA test cycles (UDDS, HWFET, US06, NYC), real-world climbs (Davis Dam, I-70 Colorado), constant speed tests (70/75 mph), and multi-cycle range testing
+- **GPX to Drive Cycle Converter** - Convert GPS tracks (.gpx files) to drive cycle CSVs with elevation data
 - **Range Estimation** - Dedicated interface for estimating vehicle range over various test cycles
 - **EREV Operating Modes**:
   - **Charge Depleting**: Pure EV until SOC threshold, then generator sustains
   - **Blended**: Generator assists when power demand is high or SOC drops
   - **Hold**: Generator maintains SOC, battery covers power peaks
+- **Generator Sizing Study Tool** - Batch simulation script for EREV generator capacity analysis across multiple drive cycles and vehicle configurations
+- **Maximum Generator-Only Speed** - Calculate the peak sustainable speed on generator power alone (no battery assist)
 - **Real-time Visualization** - Interactive plots for speed, power, energy, grade, and SOC (for EREV)
 - **Comprehensive Outputs** - Text summaries, plots, CSV data, HTML reports, and EREV power deficit analysis
 - **Flexible Input** - Support for custom drive cycles, configurable SOC thresholds, BSFC, and vehicle parameters
@@ -334,6 +337,93 @@ print(f"  Generator portion: {erev_range['generator_miles']:.1f} miles")
 
 ---
 
+## GPX to Drive Cycle Converter
+
+Convert GPS tracks from .gpx files to drive cycle CSVs with speed and elevation grade data.
+
+### Usage
+```bash
+python gpx_to_cycle.py <input.gpx> [output.csv]
+```
+
+### Example
+```bash
+python gpx_to_cycle.py DavisDamChargerToCharger.gpx drive_cycles/davis_dam_charger.csv
+```
+
+The converter:
+- Extracts GPS coordinates and elevation from GPX track points
+- Calculates speed between points using haversine distance formula
+- Computes road grade from elevation changes
+- Applies smoothing to reduce GPS noise
+- Outputs a properly formatted drive cycle CSV (time, speed in m/s, grade in %)
+
+---
+
+## Generator Sizing Study Tool
+
+A batch simulation script for analyzing EREV generator capacity across multiple drive cycles and vehicle configurations. Useful for determining if a generator is adequately sized for towing applications.
+
+### Usage
+```bash
+python generator_study.py
+```
+
+### Features
+- **Multi-Cycle Testing**: Runs simulations across multiple drive cycles (Davis Dam, I-70 Climb, Highway 75 mph, US06)
+- **Multi-SOC Testing**: Tests at both 100% and 50% starting SOC
+- **75 mph Steady-State Range**: Range estimation at constant highway speed with >100 kW warning
+- **Max Generator Speed**: Calculates the maximum sustainable speed on generator power alone
+- **Power Deficit Detection**: Identifies when power demand exceeds generator capacity
+- **Comprehensive HTML Report**: Generates multi-table report with charts
+
+### Output Tables
+1. **Single-Cycle Results (100% SOC)**: Distance, energy, MPGe, generator usage per cycle
+2. **Single-Cycle Results (50% SOC)**: Same metrics starting at half battery
+3. **Power Demand Analysis**: Peak power, average power, generator utilization per cycle
+4. **Efficiency Comparison**: kWh/mile, MPGe, energy recovery across configurations
+5. **Generator Capacity Analysis**: Deficit events, maximum power shortfall
+6. **Multi-Cycle Range Test**: Total range, EV range, generator-assisted range
+7. **75 mph Steady-State Range**: Range at highway speed with max generator speed limit
+
+### Output Charts
+- Power demand comparison across cycles
+- MPGe efficiency by configuration
+- Generator utilization (runtime %, energy %)
+- SOC profiles for each drive cycle (100% and 50% start)
+- Range comparison (stacked bar: EV + Generator)
+- Maximum generator-only sustainable speed
+
+### Range Definitions
+- **EV Range**: Miles traveled on battery alone before generator starts
+- **Generator-Assisted Range**: All miles after generator starts (supplemental range from fuel)
+
+---
+
+## Vehicle Presets with Towing
+
+The `vehicle_presets.json` file includes towing configurations that combine vehicle and trailer parameters:
+
+### Trailer Parameter Combination
+When creating towing presets:
+- **Mass**: Vehicle mass + trailer mass (combined)
+- **Frontal Area**: max(vehicle_area, trailer_area)
+- **Drag Coefficient**: Use trailer's Cd value directly (dominates aerodynamics)
+- **Rolling Resistance**: Increased to 0.015 for towing (vs 0.01 base)
+
+### Example Towing Presets
+| Configuration | Mass (kg) | Cd | Frontal Area (m²) | Notes |
+|--------------|-----------|-----|-------------------|-------|
+| Scout Terra EREV (Base) | 3,175 | 0.35 | 3.15 | No trailer |
+| + Boxy Moving Trailer | 5,200 | 0.85 | 7.13 | High drag, 2,025 kg trailer |
+| + Boxy Long RV | 5,875 | 0.90 | 7.43 | Highest drag, 2,700 kg trailer |
+| + Streamlined RV | 4,975 | 0.55 | 6.90 | Aerodynamic design, 1,800 kg |
+| + Open Car Hauler | 5,650 | 0.75 | 6.45 | Car on flatbed, 2,475 kg |
+| + Flatbed Utility | 4,075 | 0.45 | 5.83 | Small cargo trailer, 900 kg |
+| + Livestock Trailer | 5,875 | 1.00 | 8.36 | Maximum drag, 2,700 kg |
+
+---
+
 ## Output Files
 
 Each simulation run creates a timestamped subfolder in `outputs/` containing:
@@ -373,6 +463,8 @@ For EREV range estimations:
 | **US06** | Supplemental FTP | ~10 min | ~8.0 mi | Aggressive driving, high speed |
 | **NYC** | New York City Cycle | ~10 min | ~1.2 mi | Dense urban, very low speed |
 | **Davis Dam** | Real-world grade test | ~14 min | ~13.9 mi | Sustained 4-7% climb, 3000 ft gain |
+| **Davis Dam Charger** | Charger-to-charger route | ~34 min | ~33.9 mi | Real GPS track, variable grades |
+| **El Rancho to Frisco** | I-70 Colorado climb | ~50 min | ~49.8 mi | Real GPS track, sustained climb |
 | **I-70 Colorado** | Mountain climb | ~9 min | ~10 mi | Constant 7% grade at 65 mph |
 | **Constant 70 mph** | Highway range test | ~8.5 min | ~10 mi | Flat highway cruise |
 | **Constant 75 mph** | Highway range test | ~8 min | ~10 mi | Flat highway cruise |
@@ -382,8 +474,19 @@ For EREV range estimations:
 
 ## Dependencies
 
+### Core Requirements
 ```bash
 pip install numpy matplotlib
+```
+
+### Optional (for Generator Study Tool)
+```bash
+pip install scipy
+```
+
+### Optional (for GPX Conversion)
+```bash
+pip install gpxpy
 ```
 
 ---

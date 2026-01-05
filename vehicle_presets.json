@@ -10,7 +10,8 @@
       "regen": 0.88,
       "aux_power": 350,
       "battery": 82,
-      "usable_battery_pct": 91.5
+      "usable_battery_pct": 91.5,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Tesla Cybertruck (AWD)",
@@ -22,7 +23,8 @@
       "regen": 0.75,
       "aux_power": 800,
       "battery": 123,
-      "usable_battery_pct": 100
+      "usable_battery_pct": 100,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Rivian R1T (2025 Dual Max)",
@@ -34,7 +36,8 @@
       "regen": 0.75,
       "aux_power": 800,
       "battery": 141,
-      "usable_battery_pct": 95
+      "usable_battery_pct": 95,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Silverado EV (RST)",
@@ -46,7 +49,8 @@
       "regen": 0.7,
       "aux_power": 1000,
       "battery": 215,
-      "usable_battery_pct": 95
+      "usable_battery_pct": 95,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Traveler BEV",
@@ -58,25 +62,27 @@
       "regen": 0.7,
       "aux_power": 800,
       "battery": 130,
-      "usable_battery_pct": 92
+      "usable_battery_pct": 92,
+      "drivetrain_efficiency": 0.9
     },
     {
-      "name": "Ram 1500 Ramcharger",
+      "name": "Ram 1500 REV",
       "vehicle_class": "erev",
-      "mass": 3550,
-      "frontal_area": 3.5,
-      "cd": 0.36,
-      "crr": 0.01,
+      "mass": 3405,
+      "frontal_area": 2.88,
+      "cd": 0.34,
+      "crr": 0.011,
       "regen": 0.85,
-      "aux_power": 1000,
+      "aux_power": 1500,
       "battery": 92,
       "usable_battery_pct": 76,
       "generator_power_kw": 130,
       "fuel_tank_gallons": 27,
-      "bsfc_g_kwh": 240,
-      "erev_mode": "charge_depleting",
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
       "soc_sustain_pct": 20,
-      "soc_blended_threshold_pct": 30
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
     },
     {
       "name": "BMW i3 REx (120 Ah)",
@@ -94,7 +100,8 @@
       "bsfc_g_kwh": 280,
       "erev_mode": "charge_depleting",
       "soc_sustain_pct": 15,
-      "soc_blended_threshold_pct": 25
+      "soc_blended_threshold_pct": 25,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV (Harvester)",
@@ -112,7 +119,8 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV + Boxy Moving Trailer",
@@ -130,7 +138,8 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV + Boxy Long RV",
@@ -148,7 +157,8 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV + Streamlined RV",
@@ -166,7 +176,8 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV + Open Car Hauler",
@@ -184,7 +195,8 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV + Flatbed Utility",
@@ -202,7 +214,8 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
     },
     {
       "name": "Scout Terra EREV + Livestock Trailer",
@@ -220,7 +233,122 @@
       "fuel_tank_gallons": 15.0,
       "erev_mode": "blended",
       "soc_sustain_pct": 20.0,
-      "soc_blended_threshold_pct": 30.0
+      "soc_blended_threshold_pct": 30.0,
+      "drivetrain_efficiency": 0.9
+    },
+    {
+      "name": "Ram 1500 REV + Boxy Moving Trailer",
+      "vehicle_class": "erev",
+      "mass": 5430,
+      "frontal_area": 6.0,
+      "cd": 0.85,
+      "crr": 0.015,
+      "regen": 0.85,
+      "aux_power": 1500,
+      "battery": 92,
+      "usable_battery_pct": 76,
+      "generator_power_kw": 130,
+      "fuel_tank_gallons": 27,
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
+      "soc_sustain_pct": 20,
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
+    },
+    {
+      "name": "Ram 1500 REV + Boxy Long RV",
+      "vehicle_class": "erev",
+      "mass": 6105,
+      "frontal_area": 6.5,
+      "cd": 0.9,
+      "crr": 0.015,
+      "regen": 0.85,
+      "aux_power": 1500,
+      "battery": 92,
+      "usable_battery_pct": 76,
+      "generator_power_kw": 130,
+      "fuel_tank_gallons": 27,
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
+      "soc_sustain_pct": 20,
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
+    },
+    {
+      "name": "Ram 1500 REV + Streamlined RV",
+      "vehicle_class": "erev",
+      "mass": 5205,
+      "frontal_area": 5.0,
+      "cd": 0.55,
+      "crr": 0.015,
+      "regen": 0.85,
+      "aux_power": 1500,
+      "battery": 92,
+      "usable_battery_pct": 76,
+      "generator_power_kw": 130,
+      "fuel_tank_gallons": 27,
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
+      "soc_sustain_pct": 20,
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
+    },
+    {
+      "name": "Ram 1500 REV + Open Car Hauler",
+      "vehicle_class": "erev",
+      "mass": 5880,
+      "frontal_area": 4.0,
+      "cd": 0.75,
+      "crr": 0.015,
+      "regen": 0.85,
+      "aux_power": 1500,
+      "battery": 92,
+      "usable_battery_pct": 76,
+      "generator_power_kw": 130,
+      "fuel_tank_gallons": 27,
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
+      "soc_sustain_pct": 20,
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
+    },
+    {
+      "name": "Ram 1500 REV + Flatbed Utility",
+      "vehicle_class": "erev",
+      "mass": 4305,
+      "frontal_area": 3.5,
+      "cd": 0.45,
+      "crr": 0.015,
+      "regen": 0.85,
+      "aux_power": 1500,
+      "battery": 92,
+      "usable_battery_pct": 76,
+      "generator_power_kw": 130,
+      "fuel_tank_gallons": 27,
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
+      "soc_sustain_pct": 20,
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
+    },
+    {
+      "name": "Ram 1500 REV + Livestock Trailer",
+      "vehicle_class": "erev",
+      "mass": 6105,
+      "frontal_area": 7.0,
+      "cd": 1.0,
+      "crr": 0.015,
+      "regen": 0.85,
+      "aux_power": 1500,
+      "battery": 92,
+      "usable_battery_pct": 76,
+      "generator_power_kw": 130,
+      "fuel_tank_gallons": 27,
+      "bsfc_g_kwh": 270,
+      "erev_mode": "blended",
+      "soc_sustain_pct": 20,
+      "soc_blended_threshold_pct": 30,
+      "drivetrain_efficiency": 0.87
     }
   ]
 }

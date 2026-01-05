@@ -93,6 +93,7 @@ def preset_to_vehicle_params(preset: Dict[str, Any]) -> VehicleParams:
         drag_coefficient=preset['cd'],
         rolling_resistance=preset['crr'],
         vehicle_class=preset['vehicle_class'],
+        drivetrain_efficiency=preset.get('drivetrain_efficiency', 0.9),
         regen_efficiency=preset['regen'],
         auxiliary_power=preset['aux_power'],
         battery_capacity=preset['battery'],
@@ -111,26 +112,29 @@ def calculate_efficiency_metrics(
     battery_energy_kwh: float,
     fuel_gallons: float
 ) -> Dict[str, float]:
-    """Calculate efficiency metrics: mi/kWh, MPG, MPGe."""
+    """Calculate efficiency metrics: battery mi/kWh, overall mi/kWh, MPG, MPGe."""
     metrics = {
         'mi_per_kwh': 0.0,
+        'overall_mi_per_kwh': 0.0,
         'mpg': 0.0,
         'mpge': 0.0
     }
     
-    # mi/kWh (battery efficiency)
+    # mi/kWh (battery only - can be misleadingly high when generator runs more)
     if battery_energy_kwh > 0:
         metrics['mi_per_kwh'] = distance_miles / battery_energy_kwh
+    
+    # Overall mi/kWh (total energy efficiency - battery + fuel combined)
+    fuel_energy_kwh = fuel_gallons * GASOLINE_ENERGY_KWH_PER_GALLON
+    total_energy_kwh = battery_energy_kwh + fuel_energy_kwh
+    if total_energy_kwh > 0:
+        metrics['overall_mi_per_kwh'] = distance_miles / total_energy_kwh
     
     # MPG (fuel only, for generator-assisted portion)
     if fuel_gallons > 0:
         metrics['mpg'] = distance_miles / fuel_gallons
     
     # MPGe (combined efficiency per EPA formula)
-    # Total energy in kWh = battery_energy + fuel_energy
-    fuel_energy_kwh = fuel_gallons * GASOLINE_ENERGY_KWH_PER_GALLON
-    total_energy_kwh = battery_energy_kwh + fuel_energy_kwh
-    
     if total_energy_kwh > 0:
         # EPA MPGe = (distance / total_energy_kwh) * 33.7
         metrics['mpge'] = (distance_miles / total_energy_kwh) * GASOLINE_ENERGY_KWH_PER_GALLON
@@ -157,6 +161,7 @@ class CycleResult:
     power_deficit_count: int
     max_power_deficit_kw: float
     mi_per_kwh: float
+    overall_mi_per_kwh: float
     mpg: float
     mpge: float
     soc_timeline: np.ndarray
@@ -245,6 +250,7 @@ def run_single_cycle_simulation(
         power_deficit_count=erev_result.power_deficit_count,
         max_power_deficit_kw=erev_result.max_power_deficit_kw,
         mi_per_kwh=metrics['mi_per_kwh'],
+        overall_mi_per_kwh=metrics['overall_mi_per_kwh'],
         mpg=metrics['mpg'],
         mpge=metrics['mpge'],
         soc_timeline=erev_result.soc_timeline,
@@ -914,9 +920,9 @@ def generate_html_report(
     html += """        </table>
     </div>
     
-    <h2>🔥 Table 3: Efficiency Results (mi/kWh, MPG, MPGe)</h2>
+    <h2>🔥 Table 3: Efficiency Results</h2>
     <div class="section">
-        <p>Efficiency metrics for each simulation. Cells with power deficits (generator undersized) are highlighted in <span class="deficit">red</span>.</p>
+        <p><strong>Overall mi/kWh</strong> shows total energy efficiency (battery + fuel combined). This is the most accurate measure of drive cycle energy intensity. Cells with power deficits (generator undersized) are highlighted in <span class="deficit">red</span>.</p>
         <table>
             <tr>
                 <th rowspan="2">Configuration</th>
@@ -932,7 +938,7 @@ def generate_html_report(
 """
     
     for _ in cycles:
-        html += '                <th class="metric-header">mi/kWh</th>\n'
+        html += '                <th class="metric-header">Overall mi/kWh</th>\n'
         html += '                <th class="metric-header">MPG</th>\n'
         html += '                <th class="metric-header">MPGe</th>\n'
     
@@ -954,7 +960,7 @@ def generate_html_report(
                 r = matching[0]
                 cell_class = 'deficit' if r.power_deficit_count > 0 else ''
                 mpg_display = f'{r.mpg:.1f}' if r.fuel_gallons > 0.01 else 'N/A'
-                html += f'                <td class="{cell_class}">{r.mi_per_kwh:.2f}</td>\n'
+                html += f'                <td class="{cell_class}">{r.overall_mi_per_kwh:.2f}</td>\n'
                 html += f'                <td class="{cell_class}">{mpg_display}</td>\n'
                 html += f'                <td class="{cell_class}">{r.mpge:.1f}</td>\n'
             else:
@@ -1658,6 +1664,7 @@ def generate_html_report_extended(
     html += """
     <h2>🔥 Table 4: Efficiency Results <span class="soc-label">100% SOC</span></h2>
     <div class="section">
+        <p><strong>Overall mi/kWh</strong> shows total energy efficiency (battery + fuel combined). This is the most accurate measure of drive cycle energy intensity.</p>
         <table>
             <tr>
                 <th rowspan="2">Configuration</th>
@@ -1671,7 +1678,7 @@ def generate_html_report_extended(
             <tr>
 """
     for _ in cycles:
-        html += '                <th class="metric-header">mi/kWh</th>\n'
+        html += '                <th class="metric-header">Overall mi/kWh</th>\n'
         html += '                <th class="metric-header">MPG</th>\n'
         html += '                <th class="metric-header">MPGe</th>\n'
     
@@ -1687,7 +1694,7 @@ def generate_html_report_extended(
             if matching:
                 r = matching[0]
                 mpg_display = f'{r.mpg:.1f}' if r.fuel_gallons > 0.01 else 'N/A'
-                html += f'                <td>{r.mi_per_kwh:.2f}</td>\n'
+                html += f'                <td>{r.overall_mi_per_kwh:.2f}</td>\n'
                 html += f'                <td>{mpg_display}</td>\n'
                 html += f'                <td>{r.mpge:.1f}</td>\n'
             else:
@@ -1703,6 +1710,7 @@ def generate_html_report_extended(
     html += """
     <h2>🔥 Table 5: Efficiency Results <span class="soc-label">50% SOC</span></h2>
     <div class="section">
+        <p><strong>Overall mi/kWh</strong> shows total energy efficiency (battery + fuel combined). This is the most accurate measure of drive cycle energy intensity.</p>
         <table>
             <tr>
                 <th rowspan="2">Configuration</th>
@@ -1716,7 +1724,7 @@ def generate_html_report_extended(
             <tr>
 """
     for _ in cycles:
-        html += '                <th class="metric-header">mi/kWh</th>\n'
+        html += '                <th class="metric-header">Overall mi/kWh</th>\n'
         html += '                <th class="metric-header">MPG</th>\n'
         html += '                <th class="metric-header">MPGe</th>\n'
     
@@ -1732,7 +1740,7 @@ def generate_html_report_extended(
             if matching:
                 r = matching[0]
                 mpg_display = f'{r.mpg:.1f}' if r.fuel_gallons > 0.01 else 'N/A'
-                html += f'                <td>{r.mi_per_kwh:.2f}</td>\n'
+                html += f'                <td>{r.overall_mi_per_kwh:.2f}</td>\n'
                 html += f'                <td>{mpg_display}</td>\n'
                 html += f'                <td>{r.mpge:.1f}</td>\n'
             else:
